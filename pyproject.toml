@@ -1,0 +1,19 @@
+[project]
+name = "mpox-luminex-qc"
+version = "0.1.0"
+description = "QC tool for 12-plex MPXV Luminex immunoassays"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "plotly>=5.18",
+    "Jinja2>=3.1",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends._legacy:_Backend"
