@@ -29,7 +29,13 @@
 </head>
 <body>
 
-<h1>MPXV Luminex QC Report</h1>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h1 style="margin-bottom: 0;">MPXV Luminex QC Report</h1>
+  <a href="/" style="display: inline-block; padding: 8px 16px; background: #3498db; color: #fff;
+     border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
+    &larr; Back to Menu
+  </a>
+</div>
 
 <!-- Section 1: Plate Overview -->
 <div class="section">
@@ -83,12 +89,13 @@
 <h2>3. PC Standard Curves (4PL)</h2>
 
 <table>
-  <tr><th>Analyte</th><th>Fit OK</th><th>a (min)</th><th>b (slope)</th><th>c (EC50)</th><th>d (max)</th></tr>
+  <tr><th>Analyte</th><th>Fit OK</th><th>a (min)</th><th>b (slope)</th><th>c (EC50)</th><th>d (max)</th><th>Issues</th></tr>
   {% for row in fits %}
   <tr class="{{ 'ok' if row.fit_ok else 'flag' }}">
     <td>{{ row.analyte }}</td>
     <td>{{ 'Yes' if row.fit_ok else 'FAILED' }}</td>
     <td>{{ row.a }}</td><td>{{ row.b }}</td><td>{{ row.c }}</td><td>{{ row.d }}</td>
+    <td>{% if row.error %}{{ row.error }}{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
@@ -108,12 +115,17 @@
 <p>All replicate CVs &le; 25%.</p>
 {% endif %}
 
-{% if 'replicate_cv' in figures %}
-<div class="plot-container" id="replicate_cv"></div>
+{% if 'pc_mfi_history' in figures %}
+<div class="plot-container" id="pc_mfi_history"></div>
 {% endif %}
 
 <details>
 <summary>Replicate CV details (click to expand)</summary>
+
+{% if 'replicate_cv' in figures %}
+<div class="plot-container" id="replicate_cv"></div>
+{% endif %}
+
 <table>
   <tr><th>Analyte</th><th>Dilution</th><th>Rep 1</th><th>Rep 2</th><th>Mean</th><th>CV</th></tr>
   {% for row in replicate_qc.replicate_cv.to_dict('records') %}
@@ -132,18 +144,27 @@
 <div class="section">
 <h2>5. Negative Control Levels</h2>
 {% if nc_levels %}
+
+{% if 'nc_history' in figures %}
+<div class="plot-container" id="nc_history"></div>
+{% endif %}
+
+<details>
+<summary>NC details for this plate (click to expand)</summary>
+
+{% if 'nc_levels' in figures %}
+<div class="plot-container" id="nc_levels"></div>
+{% endif %}
+
 <table>
   <tr><th>Well</th><th>Analyte</th><th>MFI</th></tr>
   {% for row in nc_levels %}
   <tr><td>{{ row.well }}</td><td>{{ row.analyte }}</td><td>{{ "%.1f" | format(row.mfi) }}</td></tr>
   {% endfor %}
 </table>
+</details>
 {% else %}
 <p>No NC wells on this plate.</p>
-{% endif %}
-
-{% if 'nc_levels' in figures %}
-<div class="plot-container" id="nc_levels"></div>
 {% endif %}
 </div>
 

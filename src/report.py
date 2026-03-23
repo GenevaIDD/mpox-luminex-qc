@@ -31,13 +31,17 @@ def generate_report(
     """Generate the full QC report as a self-contained HTML file."""
     output_path = Path(output_path)
 
+    current_plate_id = metadata.get("plate_id", "")
+
     # Build all the plotly figures
     figures = {}
     figures["bead_heatmap"] = _make_bead_heatmap(bead_qc["by_well"])
     figures["standard_curves"] = _make_standard_curve_plots(fits, specimen_results, history_std)
     if replicate_qc["has_replicates"]:
         figures["replicate_cv"] = _make_replicate_plot(replicate_qc["replicate_cv"])
+    figures["pc_mfi_history"] = _make_pc_mfi_history(history_std, current_plate_id)
     figures["nc_levels"] = _make_nc_plot(nc_levels, history_nc)
+    figures["nc_history"] = _make_nc_history(history_nc, current_plate_id)
     figures["kit_controls"] = _make_kit_control_plots(kit_controls)
     if not specimen_results.empty:
         figures["specimen_mfi"] = _make_specimen_distribution(specimen_results)
@@ -194,8 +198,65 @@ def _make_replicate_plot(cv_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) -> go.Figure | None:
+    """Panel plot: PC MFI by plate for each analyte (2x4 grid)."""
+    if history is None or history.empty:
+        return None
+
+    antigens = [a for a in MPXV_ANTIGENS if a in history["analyte"].unique()]
+    if not antigens:
+        return None
+
+    fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
+                        horizontal_spacing=0.06, vertical_spacing=0.12)
+
+    plates = history["plate_id"].unique()
+    # Short plate labels (last part, e.g. "Plate01")
+    plate_labels = []
+    for p in plates:
+        parts = p.split("-")
+        label = next((x for x in reversed(parts) if "Plate" in x), p[-8:])
+        plate_labels.append(label)
+
+    for i, analyte in enumerate(antigens[:8]):
+        row = i // 4 + 1
+        col = i % 4 + 1
+        adata = history[history["analyte"] == analyte]
+
+        # One point per plate (mean MFI across dilutions for that analyte)
+        for dil in sorted(adata["dilution"].unique()):
+            dil_data = adata[adata["dilution"] == dil]
+            plate_mfis = []
+            labels = []
+            colors = []
+            for j, pid in enumerate(plates):
+                pdata = dil_data[dil_data["plate_id"] == pid]
+                if not pdata.empty:
+                    plate_mfis.append(pdata["mfi"].mean())
+                    labels.append(plate_labels[j])
+                    colors.append("red" if pid == current_plate_id else "steelblue")
+
+            fig.add_trace(go.Scatter(
+                x=labels, y=plate_mfis,
+                mode="markers+lines",
+                marker=dict(size=6, color=colors),
+                line=dict(color="lightgrey", width=1),
+                name=f"1:{int(dil)}", showlegend=(i == 0),
+                hovertemplate="%{x}: MFI %{y:.0f}<extra>1:" + str(int(dil)) + "</extra>",
+            ), row=row, col=col)
+
+        fig.update_yaxes(type="log", row=row, col=col)
+
+    fig.update_layout(
+        height=600,
+        title_text="PC Standard MFI Across Plates (by dilution)",
+        margin=dict(t=60),
+    )
+    return fig
+
+
 def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.Figure:
-    """NC MFI by analyte."""
+    """NC MFI by analyte — current plate bar chart."""
     if nc_levels.empty:
         fig = go.Figure()
         fig.update_layout(title="No NC wells on this plate")
@@ -211,6 +272,57 @@ def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.F
         title="Negative Control MFI by Analyte",
         xaxis_title="Analyte", yaxis_title="MFI",
         height=350,
+    )
+    return fig
+
+
+def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str) -> go.Figure | None:
+    """Panel plot: NC MFI by plate for each analyte (2x4 grid)."""
+    if history_nc is None or history_nc.empty:
+        return None
+
+    antigens = [a for a in MPXV_ANTIGENS if a in history_nc["analyte"].unique()]
+    if not antigens:
+        return None
+
+    fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
+                        horizontal_spacing=0.06, vertical_spacing=0.12)
+
+    plates = history_nc["plate_id"].unique()
+    plate_labels = []
+    for p in plates:
+        parts = p.split("-")
+        label = next((x for x in reversed(parts) if "Plate" in x), p[-8:])
+        plate_labels.append(label)
+
+    for i, analyte in enumerate(antigens[:8]):
+        row = i // 4 + 1
+        col = i % 4 + 1
+        adata = history_nc[history_nc["analyte"] == analyte]
+
+        mfis = []
+        labels = []
+        colors = []
+        for j, pid in enumerate(plates):
+            pdata = adata[adata["plate_id"] == pid]
+            if not pdata.empty:
+                mfis.append(pdata["mfi"].mean())
+                labels.append(plate_labels[j])
+                colors.append("red" if pid == current_plate_id else "steelblue")
+
+        fig.add_trace(go.Scatter(
+            x=labels, y=mfis,
+            mode="markers+lines",
+            marker=dict(size=8, color=colors),
+            line=dict(color="lightgrey", width=1),
+            showlegend=False,
+            hovertemplate="%{x}: MFI %{y:.1f}<extra></extra>",
+        ), row=row, col=col)
+
+    fig.update_layout(
+        height=600,
+        title_text="Negative Control MFI Across Plates",
+        margin=dict(t=60),
     )
     return fig
 
@@ -269,7 +381,9 @@ def _fits_to_table(fits: dict) -> list[dict]:
             a, b, c, d = f["params"]
             row.update({"a": f"{a:.1f}", "b": f"{b:.3f}", "c": f"{c:.1f}", "d": f"{d:.1f}"})
         else:
-            row.update({"a": "-", "b": "-", "c": "-", "d": "-", "error": f.get("error", "")})
+            row.update({"a": "-", "b": "-", "c": "-", "d": "-"})
+        row["error"] = f.get("error", "")
+        row["qc_warnings"] = f.get("qc_warnings", [])
         rows.append(row)
     return rows
 

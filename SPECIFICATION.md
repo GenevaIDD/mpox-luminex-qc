@@ -85,7 +85,18 @@ Model: `y = d + (a - d) / (1 + (x / c)^b)`
 - Fit independently for each of the 8 antigens
 - Uses mean of PC duplicates at each dilution point
 - Fitted via `scipy.optimize.curve_fit` with bounds
-- Reports fit success/failure and all 4 parameters per analyte
+- Reports fit success/failure, all 4 parameters, and quality issues per analyte
+
+**Fit quality checks** (all must pass for `fit_ok = True`):
+
+| Check          | Criterion                    | Rationale                                    |
+|----------------|------------------------------|----------------------------------------------|
+| R²             | ≥ 0.95                       | Goodness of fit                              |
+| EC50 (c)       | Within 10–10,000             | Inflection point near the dilution range      |
+| Hill slope (b) | Between 0.3 and 5.0          | Prevents step-function or flat fits           |
+| Dynamic range  | max/min asymptote ≥ 3-fold   | Ensures adequate signal separation            |
+
+If any check fails, `fit_ok` is `False`, RAU is not computed for that analyte, and the specific issues are reported in the QC table.
 
 ### 3. PC Replicate Variability
 
@@ -118,7 +129,7 @@ For each specimen well and antigen:
 **Interpretation**: higher RAU = more antibody. A specimen with RAU = 0.02 produces the same signal as a 1:50 dilution of the positive control standard.
 
 RAU is `NaN` when:
-- The 4PL fit failed for that analyte
+- The 4PL fit failed quality checks for that analyte
 - The specimen MFI falls outside the standard curve range
 
 ## Reports
@@ -129,11 +140,13 @@ Self-contained HTML file with embedded interactive Plotly charts. Sections:
 
 1. **Plate Overview** — metadata table, well count summary (total, PC, NC, specimen)
 2. **Bead Counts** — flagged pairs count, flagged details table, plate heatmap
-3. **Standard Curves** — 4PL parameter table, 2×4 grid of curve plots with historical overlays (grey) and specimen rug marks
-4. **PC Replicate CV** — flagged pairs, CV bar chart by dilution (conditional: only when duplicates present)
-5. **Negative Control Levels** — NC MFI bar chart by analyte
+3. **Standard Curves** — 4PL parameter table with fit quality issues, 2×4 grid of curve plots with historical overlays (grey) and specimen rug marks
+4. **PC Replicate Variability** — 2×4 panel plot of PC MFI across plates (by dilution), with CV bar chart and details table in a fold (conditional: only when duplicates present)
+5. **Negative Control Levels** — 2×4 panel plot of NC MFI across plates, with per-plate bar chart and details table in a fold
 6. **Kit Control Beads** — flagged wells, 1×4 bar chart per control bead
 7. **Specimen Results** — wide-format table with MFI and RAU per antigen
+
+Each report includes a "Back to Menu" button linking to the main upload interface.
 
 ### Per-Plate Specimen CSV
 
@@ -167,8 +180,9 @@ History is deduplicated on plate_id — reprocessing a plate overwrites its prev
 - Local-only web server (binds to `127.0.0.1` on a random free port)
 - Browser auto-opens on launch
 - Upload form: one or more xPONENT CSVs + optional layout XLSX
-- Past reports table with view/download links
+- Past reports table with view/download links and per-plate delete button
 - "Export All Data" button for combined Excel workbook
+- Delete plate: removes report, specimen CSV, and history entries
 - "Quit Application" button for graceful shutdown
 
 ### Data Storage

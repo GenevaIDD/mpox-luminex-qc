@@ -217,6 +217,35 @@ def create_app() -> Flask:
             download_name="mpxv_luminex_all_data.xlsx",
         )
 
+    @app.route("/delete/<plate_id>", methods=["POST"])
+    def delete_plate(plate_id):
+        """Delete a plate's report, specimen CSV, and history entries."""
+        plate_id = secure_filename(plate_id)
+
+        # Delete report HTML
+        report_file = results / "reports" / f"QC_{plate_id}.html"
+        if report_file.exists():
+            report_file.unlink()
+
+        # Delete specimen CSV
+        spec_file = results / "specimens" / f"specimens_{plate_id}.csv"
+        if spec_file.exists():
+            spec_file.unlink()
+
+        # Remove plate from history JSON files
+        history_dir = results / "history"
+        for hist_file in history_dir.glob("*.json"):
+            try:
+                data = json.loads(hist_file.read_text())
+                filtered = [r for r in data if r.get("plate_id") != plate_id]
+                if len(filtered) < len(data):
+                    hist_file.write_text(json.dumps(filtered, indent=2))
+            except Exception:
+                pass
+
+        flash(f"Deleted plate {plate_id}.", "success")
+        return redirect(url_for("index"))
+
     @app.route("/shutdown", methods=["POST"])
     def shutdown():
         os.kill(os.getpid(), signal.SIGINT)

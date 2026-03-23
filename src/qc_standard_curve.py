@@ -66,20 +66,28 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
         x = means["dilution"].values
         y = means["mfi"].values
 
-        params, fit_ok, error = _fit_one(x, y)
+        params, fit_ok, error, qc_warnings = _fit_one(x, y)
         results[analyte] = {
             "params": params,
             "fit_ok": fit_ok,
             "std_data": adata,
             "mean_data": means,
             "error": error,
+            "qc_warnings": qc_warnings,
         }
 
     return results
 
 
 def _fit_one(x, y):
-    """Fit 4PL to a single analyte's standard curve."""
+    """Fit 4PL to a single analyte's standard curve.
+
+    Returns (params, fit_ok, error, warnings) where:
+    - params: (a, b, c, d) tuple or None
+    - fit_ok: True only if fit converges AND passes quality checks
+    - error: error message if fit failed or quality check failed
+    - warnings: list of quality warnings (may be non-empty even if fit_ok)
+    """
     # Initial guesses
     d_init = np.max(y)   # upper asymptote (low dilution = high MFI)
     a_init = np.min(y)   # lower asymptote (high dilution = low MFI)
@@ -96,9 +104,41 @@ def _fit_one(x, y):
         popt, _ = curve_fit(
             four_pl, x, y, p0=p0, bounds=bounds, maxfev=10000
         )
-        return tuple(popt), True, None
     except Exception as e:
-        return None, False, str(e)
+        return None, False, str(e), []
+
+    a, b, c, d = popt
+
+    # --- Fit quality checks ---
+    qc_warnings = []
+
+    # 1. R² (goodness of fit)
+    y_pred = four_pl(x, *popt)
+    ss_res = np.sum((y - y_pred) ** 2)
+    ss_tot = np.sum((y - np.mean(y)) ** 2)
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+    if r_squared < 0.95:
+        qc_warnings.append(f"R²={r_squared:.3f} (< 0.95)")
+
+    # 2. EC50 within plausible range
+    if c < 10 or c > 10000:
+        qc_warnings.append(f"EC50={c:.1f} outside range [10, 10000]")
+
+    # 3. Hill slope in reasonable range
+    if b < 0.3 or b > 5.0:
+        qc_warnings.append(f"Hill slope={b:.2f} outside range [0.3, 5.0]")
+
+    # 4. Dynamic range (ratio of upper to lower asymptote)
+    upper = max(a, d)
+    lower = max(min(a, d), 1.0)  # floor at 1 to avoid division by zero
+    dynamic_range = upper / lower
+    if dynamic_range < 3.0:
+        qc_warnings.append(f"Dynamic range={dynamic_range:.1f}x (< 3x)")
+
+    fit_ok = len(qc_warnings) == 0
+    error = "; ".join(qc_warnings) if qc_warnings else None
+
+    return tuple(popt), fit_ok, error, qc_warnings
 
 
 def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:

@@ -110,6 +110,7 @@
       <th>Generated</th>
       <th>Report</th>
       <th>Specimens</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
@@ -128,6 +129,14 @@
         {% else %}
           —
         {% endif %}
+      </td>
+      <td>
+        <form method="POST" action="/delete/{{ r.plate_id }}" style="margin:0;">
+          <button type="submit" class="btn btn-danger btn-sm"
+                  onclick="return confirm('Delete {{ r.plate_id }} and all its data?')">
+            Delete
+          </button>
+        </form>
       </td>
     </tr>
     {% endfor %}
