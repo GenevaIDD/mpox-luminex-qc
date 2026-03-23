@@ -69,7 +69,7 @@ def run_pipeline(
     # 8. QC: kit controls
     kit_ctrl = qc_kit_controls(data)
 
-    # 9. Compute specimen concentrations
+    # 9. Compute specimen RAU (relative antibody units)
     specimen_results = compute_concentrations(data, fits)
 
     # 10. Plate summary

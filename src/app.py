@@ -1,0 +1,252 @@
+"""Flask web app for MPXV Luminex QC tool."""
+
+import io
+import json
+import os
+import signal
+import sys
+import traceback
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+from flask import (
+    Flask,
+    flash,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
+from werkzeug.utils import secure_filename
+
+from .pipeline import run_pipeline
+
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+def _get_base_path() -> Path:
+    """Return the base path for bundled resources.
+
+    PyInstaller sets sys._MEIPASS when running from a bundle.
+    In dev, use the project root (parent of src/).
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent.parent
+
+
+def _get_results_dir() -> Path:
+    """Persistent results directory in user's home."""
+    d = Path.home() / "mpox-luminex-qc-results"
+    for sub in ("reports", "specimens", "history", "uploads"):
+        (d / sub).mkdir(parents=True, exist_ok=True)
+    return d
+
+
+# ---------------------------------------------------------------------------
+# App factory
+# ---------------------------------------------------------------------------
+
+def create_app() -> Flask:
+    base = _get_base_path()
+    results = _get_results_dir()
+
+    app = Flask(
+        __name__,
+        template_folder=str(base / "templates" / "web"),
+        static_folder=str(base / "static") if (base / "static").exists() else None,
+    )
+    app.secret_key = os.urandom(24)
+    app.config["RESULTS_DIR"] = results
+    app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
+
+    # ------------------------------------------------------------------
+    # Routes
+    # ------------------------------------------------------------------
+
+    @app.route("/")
+    def index():
+        reports = _list_reports(results)
+        return render_template("index.html", reports=reports, version="0.1.0")
+
+    @app.route("/upload", methods=["POST"])
+    def upload():
+        csv_files = request.files.getlist("csv_files")
+        layout_file = request.files.get("layout_file")
+
+        # Validate
+        csv_files = [f for f in csv_files if f and f.filename]
+        if not csv_files:
+            flash("Please select at least one CSV file.", "error")
+            return redirect(url_for("index"))
+
+        # Save optional layout file
+        layout_path = None
+        if layout_file and layout_file.filename:
+            layout_name = secure_filename(layout_file.filename)
+            layout_path = results / "uploads" / layout_name
+            layout_file.save(layout_path)
+
+        last_report = None
+        for csv_file in csv_files:
+            csv_name = secure_filename(csv_file.filename)
+            csv_path = results / "uploads" / csv_name
+            csv_file.save(csv_path)
+
+            try:
+                report_path = run_pipeline(
+                    csv_path=csv_path,
+                    output_dir=results / "reports",
+                    layout_path=layout_path,
+                    history_dir=results / "history",
+                )
+                last_report = report_path
+
+                # Move specimen CSV from reports/ to specimens/
+                plate_id = report_path.stem.replace("QC_", "")
+                spec_csv = results / "reports" / f"specimens_{plate_id}.csv"
+                if spec_csv.exists():
+                    spec_csv.rename(results / "specimens" / spec_csv.name)
+
+                flash(f"Report generated: {report_path.name}", "success")
+
+            except Exception as exc:
+                traceback.print_exc()
+                flash(f"Error processing {csv_name}: {exc}", "error")
+
+            finally:
+                # Clean up uploaded CSV
+                if csv_path.exists():
+                    csv_path.unlink()
+
+        # Clean up layout file
+        if layout_path and layout_path.exists():
+            layout_path.unlink()
+
+        # Redirect to the last generated report, or back to index
+        if last_report and last_report.exists():
+            return redirect(url_for("view_report", filename=last_report.name))
+        return redirect(url_for("index"))
+
+    @app.route("/report/<filename>")
+    def view_report(filename):
+        report_file = results / "reports" / secure_filename(filename)
+        if not report_file.exists():
+            flash("Report not found.", "error")
+            return redirect(url_for("index"))
+        return send_file(report_file)
+
+    @app.route("/download/report/<filename>")
+    def download_report(filename):
+        report_file = results / "reports" / secure_filename(filename)
+        if not report_file.exists():
+            flash("Report not found.", "error")
+            return redirect(url_for("index"))
+        return send_file(report_file, as_attachment=True)
+
+    @app.route("/download/specimens/<filename>")
+    def download_specimens(filename):
+        spec_file = results / "specimens" / secure_filename(filename)
+        if not spec_file.exists():
+            flash("Specimen file not found.", "error")
+            return redirect(url_for("index"))
+        return send_file(spec_file, as_attachment=True)
+
+    @app.route("/export/all")
+    def export_all():
+        """Export all data to date as an Excel workbook.
+
+        Sheets:
+        - specimens: all specimen results combined across plates
+        - standard_curve_params: 4PL fit parameters (a, b, c, d) per plate/analyte
+        - standard_curve_data: raw standard curve MFI data points
+        - nc_levels: negative control MFI per plate/analyte
+        """
+        history_dir = results / "history"
+        specimens_dir = results / "specimens"
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            # All specimens
+            spec_frames = []
+            for csv_file in sorted(specimens_dir.glob("specimens_*.csv")):
+                df = pd.read_csv(csv_file)
+                plate_id = csv_file.stem.replace("specimens_", "")
+                df.insert(0, "plate_id", plate_id)
+                spec_frames.append(df)
+            if spec_frames:
+                pd.concat(spec_frames, ignore_index=True).to_excel(
+                    writer, sheet_name="specimens", index=False
+                )
+
+            # Fit history (standard curve parameters)
+            fit_path = history_dir / "fit_history.json"
+            if fit_path.exists():
+                fit_data = pd.DataFrame(json.loads(fit_path.read_text()))
+                if not fit_data.empty:
+                    fit_data.to_excel(
+                        writer, sheet_name="standard_curve_params", index=False
+                    )
+
+            # Standard curve raw data
+            std_path = history_dir / "std_curve_history.json"
+            if std_path.exists():
+                std_data = pd.DataFrame(json.loads(std_path.read_text()))
+                if not std_data.empty:
+                    std_data.to_excel(
+                        writer, sheet_name="standard_curve_data", index=False
+                    )
+
+            # NC levels
+            nc_path = history_dir / "nc_history.json"
+            if nc_path.exists():
+                nc_data = pd.DataFrame(json.loads(nc_path.read_text()))
+                if not nc_data.empty:
+                    nc_data.to_excel(
+                        writer, sheet_name="nc_levels", index=False
+                    )
+
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name="mpxv_luminex_all_data.xlsx",
+        )
+
+    @app.route("/shutdown", methods=["POST"])
+    def shutdown():
+        os.kill(os.getpid(), signal.SIGINT)
+        return "Shutting down...", 200
+
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _list_reports(results_dir: Path) -> list[dict]:
+    """List past reports sorted by modification time (most recent first)."""
+    reports_dir = results_dir / "reports"
+    specimens_dir = results_dir / "specimens"
+    reports = []
+
+    for html_file in sorted(reports_dir.glob("QC_*.html"), key=os.path.getmtime, reverse=True):
+        plate_id = html_file.stem.replace("QC_", "")
+        mtime = datetime.fromtimestamp(html_file.stat().st_mtime)
+
+        # Check for matching specimen CSV
+        spec_csv = specimens_dir / f"specimens_{plate_id}.csv"
+
+        reports.append({
+            "plate_id": plate_id,
+            "filename": html_file.name,
+            "date": mtime.strftime("%Y-%m-%d %H:%M"),
+            "specimen_csv": spec_csv.name if spec_csv.exists() else None,
+        })
+
+    return reports

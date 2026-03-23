@@ -102,12 +102,13 @@ def _fit_one(x, y):
 
 
 def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
-    """Apply 4PL inversion to compute concentrations for specimen wells.
+    """Apply 4PL inversion to compute RAU for specimen wells.
 
-    Adds a 'concentration' column (the dilution-equivalent from the standard curve).
+    Adds an 'rau' column — Relative Antibody Units, defined as
+    1 / (interpolated dilution factor). Higher RAU = more antibody.
     """
     specimens = df[df["well_type"] == "specimen"].copy()
-    specimens["concentration"] = np.nan
+    specimens["rau"] = np.nan
 
     for analyte, fit_result in fits.items():
         if not fit_result["fit_ok"]:
@@ -115,6 +116,7 @@ def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
         a, b, c, d = fit_result["params"]
         mask = specimens["analyte"] == analyte
         mfi_vals = specimens.loc[mask, "mfi"].values
-        specimens.loc[mask, "concentration"] = invert_4pl(mfi_vals, a, b, c, d)
+        dilution_equiv = invert_4pl(mfi_vals, a, b, c, d)
+        specimens.loc[mask, "rau"] = 1.0 / dilution_equiv
 
     return specimens

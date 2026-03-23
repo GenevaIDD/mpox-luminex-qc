@@ -124,10 +124,17 @@ def _parse_well_from_location(loc: str) -> str:
     return loc
 
 
+def _strip_bead_prefix(name: str) -> str:
+    """Strip numeric prefix from bead names: '01 MVA Ag' -> 'MVA Ag'."""
+    m = re.match(r"^\d+\s+(.+)$", name)
+    return m.group(1) if m else name
+
+
 def _wide_to_long(df: pd.DataFrame, analyte_cols: list[str], value_name: str) -> pd.DataFrame:
     """Pivot wide data block to long format."""
     id_cols = ["well", "sample_name"]
     long = df[id_cols + analyte_cols].melt(
         id_vars=id_cols, var_name="analyte", value_name=value_name
     )
+    long["analyte"] = long["analyte"].apply(_strip_bead_prefix)
     return long

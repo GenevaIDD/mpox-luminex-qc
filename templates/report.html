@@ -62,7 +62,7 @@
 <div class="section">
 <h2>2. Bead Counts</h2>
 {% if bead_qc.n_flagged > 0 %}
-<p class="warning">{{ bead_qc.n_flagged }} well-analyte pairs flagged (bead count &lt; 50)</p>
+<p class="warning">{{ bead_qc.n_flagged }} well-analyte pairs flagged (bead count &lt; 30)</p>
 <table>
   <tr><th>Well</th><th>Sample</th><th>Analyte</th><th>Count</th></tr>
   {% for row in bead_qc.flagged.to_dict('records') %}
@@ -70,7 +70,7 @@
   {% endfor %}
 </table>
 {% else %}
-<p>All bead counts &ge; 50. No flags.</p>
+<p>All bead counts &ge; 30. No flags.</p>
 {% endif %}
 
 {% if 'bead_heatmap' in figures %}
@@ -165,7 +165,7 @@
 {% if specimen_results %}
 <div class="section">
 <h2>7. Specimen Results</h2>
-<p>{{ specimen_results | length }} specimens. MFI and concentration (from 4PL inversion) per antigen.</p>
+<p>{{ specimen_results | length }} specimens. MFI and RAU (Relative Antibody Units, 1/dilution from 4PL inversion; higher = more antibody) per antigen.</p>
 
 <div class="specimen-table">
 <table>

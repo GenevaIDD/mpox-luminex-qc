@@ -1,6 +1,7 @@
 """Generate self-contained HTML QC report."""
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -47,8 +48,11 @@ def generate_report(
         if fig is not None:
             figure_json[key] = json.loads(plotly.io.to_json(fig))
 
-    # Render template
-    template_dir = Path(__file__).parent.parent / "templates"
+    # Render template (PyInstaller-aware path resolution)
+    if getattr(sys, "frozen", False):
+        template_dir = Path(sys._MEIPASS) / "templates"
+    else:
+        template_dir = Path(__file__).parent.parent / "templates"
     env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
     template = env.get_template("report.html")
 
@@ -214,7 +218,7 @@ def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.F
 def _make_kit_control_plots(kit_controls: dict) -> go.Figure:
     """Combined plot for kit control beads."""
     fig = make_subplots(rows=1, cols=4,
-                        subplot_titles=["09 NC Bead", "10 ScG", "11 FC", "12 IC"])
+                        subplot_titles=["NC Bead", "ScG", "FC", "IC"])
 
     for i, (key, title) in enumerate([
         ("nc_bead", "09 NC Bead"), ("scg", "10 ScG"), ("fc", "11 FC"), ("ic", "12 IC")
@@ -285,7 +289,7 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
     """Pivot specimen results to wide format for the table."""
     if specimens.empty:
         return []
-    # Pivot: one row per well, columns for each antigen's MFI and concentration
+    # Pivot: one row per well, columns for each antigen's MFI and RAU
     antigens = [a for a in MPXV_ANTIGENS if a in specimens["analyte"].unique()]
 
     rows = []
@@ -296,9 +300,8 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
         for analyte in antigens:
             arow = wdata[wdata["analyte"] == analyte]
             if not arow.empty:
-                short_name = analyte.split(" ", 1)[1] if " " in analyte else analyte
-                row[f"{short_name}_mfi"] = round(arow["mfi"].iloc[0], 1)
-                conc = arow["concentration"].iloc[0]
-                row[f"{short_name}_conc"] = round(conc, 1) if pd.notna(conc) else None
+                row[f"{analyte}_mfi"] = round(arow["mfi"].iloc[0], 1)
+                rau = arow["rau"].iloc[0]
+                row[f"{analyte}_rau"] = round(rau, 6) if pd.notna(rau) else None
         rows.append(row)
     return rows

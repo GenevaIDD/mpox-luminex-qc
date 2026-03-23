@@ -1,21 +1,21 @@
 """Panel definition and default thresholds for 12-plex MPXV Luminex assay."""
 
 MPXV_ANTIGENS = [
-    "01 MVA Ag",
-    "02 VACV A33R",
-    "03 MPXV A35R",
-    "04 MPXV B6R",
-    "05 MPXV A27",
-    "06 MPXV E8L",
-    "07 MPXV H3L",
-    "08 MPXV M1R",
+    "MVA Ag",
+    "VACV A33R",
+    "MPXV A35R",
+    "MPXV B6R",
+    "MPXV A27",
+    "MPXV E8L",
+    "MPXV H3L",
+    "MPXV M1R",
 ]
 
 MPXV_KIT_CONTROLS = [
-    "09 NC",
-    "10 ScG",
-    "11 FC",
-    "12 IC",
+    "NC",
+    "ScG",
+    "FC",
+    "IC",
 ]
 
 ALL_BEADS = MPXV_ANTIGENS + MPXV_KIT_CONTROLS
@@ -31,6 +31,6 @@ PC_DILUTIONS = {
 }
 
 # QC thresholds
-BEAD_COUNT_MIN = 50
+BEAD_COUNT_MIN = 30
 PC_CV_THRESHOLD = 0.25
 NC_BEAD_MFI_MAX = 200
