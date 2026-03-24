@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Automated quality control for 12-plex MPXV Luminex immunoassays</strong><br>
-  <em>Geneva Centre for Emerging Viral Diseases &middot; University of Geneva</em>
+  <em>Geneva Disease Dynamics Group &middot; University of Geneva</em>
 </p>
 
 <p align="center">
@@ -174,8 +174,8 @@ uv run python scripts/make_icon.py
 
 **Andrew Azman** &mdash; [andrew.azman@unige.ch](mailto:andrew.azman@unige.ch)
 
-Geneva Centre for Emerging Viral Diseases, University of Geneva
+Geneva Disease Dynamics Group, Institute of Global Health, University of Geneva
 
 ## License
 
-This project is developed for internal use by the Geneva Centre for Emerging Viral Diseases.
+This project is developed for internal use by the Geneva Disease Dynamics Group (and friends).
