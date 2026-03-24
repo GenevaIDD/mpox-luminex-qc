@@ -1,9 +1,9 @@
 # MPXV Luminex QC Tool — Specification
-# Version 0.1 (2026-03-23)
+# Version 0.2 (2026-03-24)
 
 ## Overview
 
-Standalone quality control tool for 12-plex MPXV (monkeypox virus) Luminex immunoassays from Tetracore run on a MagPix instrument. Processes xPONENT CSV exports, performs automated QC checks, fits standard curves, computes Relative Antibody Units (RAU), and generates interactive HTML reports. Distributed as a macOS `.app` (or Windows `.exe`) requiring no installation.
+Standalone quality control tool for 12-plex MPXV (monkeypox virus) Luminex immunoassays from Tetracore run on a MagPix instrument. Processes xPONENT CSV exports, performs automated QC checks, fits standard curves, computes 1/RAU (inverse Relative Antibody Units), and generates interactive HTML reports. Distributed as a macOS `.app` (or Windows `.exe`) requiring no installation.
 
 ## Assay Panel
 
@@ -33,7 +33,7 @@ Standalone quality control tool for 12-plex MPXV (monkeypox virus) Luminex immun
 
 Standard 96-well plate:
 
-- **Columns 1-2**: PC (positive control) standard curve in duplicate (7-point, 2-fold serial dilution: 1:50, 1:100, 1:200, 1:400, 1:800, 1:1600, 1:3200)
+- **Columns 1-2**: PC (positive control) standard curve in duplicate (serial dilution, e.g. 3-fold: 1:100, 1:300, ..., 1:72900). Dilutions are parsed from sample names, not hardcoded.
 - **Row H, columns 1-2**: NC (negative control) wells
 - **Remaining wells**: Specimen wells (single dilution, no replicates)
 
@@ -79,7 +79,7 @@ Model: `y = d + (a - d) / (1 + (x / c)^b)`
 |-----------|----------------------------------------|
 | a         | Minimum asymptote (high dilution → low MFI) |
 | b         | Hill slope                              |
-| c         | Inflection point (EC50)                 |
+| c         | Inflection point (IC50)                 |
 | d         | Maximum asymptote (low dilution → high MFI) |
 
 - Fit independently for each of the 8 antigens
@@ -92,11 +92,11 @@ Model: `y = d + (a - d) / (1 + (x / c)^b)`
 | Check          | Criterion                    | Rationale                                    |
 |----------------|------------------------------|----------------------------------------------|
 | R²             | ≥ 0.95                       | Goodness of fit                              |
-| EC50 (c)       | Within 10–10,000             | Inflection point near the dilution range      |
+| IC50 (c)       | Within [min_dil/3, max_dil×3] | Inflection point within the tested dilution range |
 | Hill slope (b) | Between 0.3 and 5.0          | Prevents step-function or flat fits           |
 | Dynamic range  | max/min asymptote ≥ 3-fold   | Ensures adequate signal separation            |
 
-If any check fails, `fit_ok` is `False`, RAU is not computed for that analyte, and the specific issues are reported in the QC table.
+If any check fails, `fit_ok` is `False`, 1/RAU is not computed for that analyte, and the specific issues are reported in the QC table.
 
 ### 3. PC Replicate Variability
 
@@ -111,24 +111,24 @@ If any check fails, `fit_ok` is `False`, RAU is not computed for that analyte, a
 
 ### 5. Kit Control Bead QC
 
-| Control | Check                          | Threshold / Method      |
+| Control | Check                          | Threshold              |
 |---------|-------------------------------|------------------------|
-| NC bead | Non-specific binding          | MFI ≤ 200              |
-| ScG     | Sample addition verification   | Not low outlier (median − 3×MAD) |
-| FC      | Conjugate addition verification | Not low outlier (median − 3×MAD) |
-| IC      | Instrument consistency         | Not outlier (median ± 3×MAD) |
+| NC bead | Non-specific binding          | MFI ≤ 150              |
+| ScG     | Sample addition verification   | MFI ≥ 10,000           |
+| FC      | Conjugate addition verification | MFI 2,000–5,000       |
+| IC      | Instrument consistency         | MFI 2,000–3,000        |
 
 ## Computed Outputs
 
-### Relative Antibody Units (RAU)
+### 1/RAU (Inverse Relative Antibody Units)
 
 For each specimen well and antigen:
 1. Invert the fitted 4PL standard curve: given MFI, solve for the equivalent dilution factor
-2. Compute RAU = 1 / dilution_factor
+2. Compute 1/RAU = 1 / dilution_factor
 
-**Interpretation**: higher RAU = more antibody. A specimen with RAU = 0.02 produces the same signal as a 1:50 dilution of the positive control standard.
+**Interpretation**: higher 1/RAU = more antibody. A specimen with 1/RAU = 0.02 produces the same signal as a 1:50 dilution of the positive control standard.
 
-RAU is `NaN` when:
+1/RAU is `NaN` when:
 - The 4PL fit failed quality checks for that analyte
 - The specimen MFI falls outside the standard curve range
 
@@ -144,13 +144,13 @@ Self-contained HTML file with embedded interactive Plotly charts. Sections:
 4. **PC Replicate Variability** — 2×4 panel plot of PC MFI across plates (by dilution), with CV bar chart and details table in a fold (conditional: only when duplicates present)
 5. **Negative Control Levels** — 2×4 panel plot of NC MFI across plates, with per-plate bar chart and details table in a fold
 6. **Kit Control Beads** — flagged wells, 1×4 bar chart per control bead
-7. **Specimen Results** — wide-format table with MFI and RAU per antigen
+7. **Specimen Results** — wide-format table with MFI and 1/RAU per antigen
 
 Each report includes a "Back to Menu" button linking to the main upload interface.
 
 ### Per-Plate Specimen CSV
 
-Long-format CSV with columns: `well, sample_name, analyte, mfi, count, well_type, dilution, rau`
+Long-format CSV with columns: `well, sample_name, analyte, mfi, count, well_type, dilution, 1/rau`
 
 ### Export All Data (Excel workbook)
 

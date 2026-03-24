@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from jinja2 import Environment, FileSystemLoader
 
-from .config import MPXV_ANTIGENS, MPXV_KIT_CONTROLS
+from .config import APP_VERSION, MPXV_ANTIGENS, MPXV_KIT_CONTROLS
 
 
 def generate_report(
@@ -69,8 +69,10 @@ def generate_report(
         nc_levels=nc_levels.to_dict("records") if not nc_levels.empty else [],
         kit_controls=_kit_controls_to_tables(kit_controls),
         specimen_results=_specimen_to_table(specimen_results),
+        extrapolation=_extrapolation_summary(specimen_results),
         figures=figure_json,
         plotly_js=plotly.offline.get_plotlyjs(),
+        version=APP_VERSION,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,7 +144,10 @@ def _make_standard_curve_plots(
         # Fitted curve
         params = fit.get("params")
         if params is not None:
-            x_fit = np.logspace(np.log10(30), np.log10(5000), 100)
+            # Extend fit line across the full dilution range shown on the plot
+            x_min = min(std_data["dilution"].min(), 30) if not std_data.empty else 30
+            x_max = max(std_data["dilution"].max(), 3200) * 2
+            x_fit = np.logspace(np.log10(x_min), np.log10(x_max), 200)
             y_fit = four_pl_np(x_fit, *params)
             fig.add_trace(go.Scatter(
                 x=x_fit, y=y_fit,
@@ -333,7 +338,7 @@ def _make_kit_control_plots(kit_controls: dict) -> go.Figure:
                         subplot_titles=["NC Bead", "ScG", "FC", "IC"])
 
     for i, (key, title) in enumerate([
-        ("nc_bead", "09 NC Bead"), ("scg", "10 ScG"), ("fc", "11 FC"), ("ic", "12 IC")
+        ("nc_bead", "NC Bead"), ("scg", "ScG"), ("fc", "FC"), ("ic", "IC")
     ]):
         cdata = kit_controls[key]
         colors = ["red" if f else "steelblue" for f in cdata["flag"]]
@@ -416,6 +421,27 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
             if not arow.empty:
                 row[f"{analyte}_mfi"] = round(arow["mfi"].iloc[0], 1)
                 rau = arow["rau"].iloc[0]
-                row[f"{analyte}_rau"] = round(rau, 6) if pd.notna(rau) else None
+                extrap = bool(arow["extrapolated"].iloc[0]) if "extrapolated" in arow.columns else False
+                rau_str = None
+                if pd.notna(rau):
+                    rau_str = f"{rau:.6f}*" if extrap else f"{rau:.6f}"
+                row[f"{analyte}_1/RAU"] = rau_str
         rows.append(row)
     return rows
+
+
+def _extrapolation_summary(specimens: pd.DataFrame) -> dict:
+    """Summarise how many specimen-analyte pairs are extrapolated."""
+    if specimens.empty or "extrapolated" not in specimens.columns:
+        return {"n_extrapolated": 0, "details": []}
+    extrap = specimens[specimens["extrapolated"]].copy()
+    n = len(extrap)
+    # Summarise by analyte
+    details = []
+    if n > 0:
+        for analyte in MPXV_ANTIGENS:
+            aext = extrap[extrap["analyte"] == analyte]
+            if not aext.empty:
+                above = (aext["mfi"] > aext["mfi"].median()).sum()  # rough
+                details.append({"analyte": analyte, "count": len(aext)})
+    return {"n_extrapolated": n, "details": details}

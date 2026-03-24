@@ -148,14 +148,22 @@
 </p>
 {% endif %}
 
-<div class="footer">
-  <span>MPXV Luminex QC Tool v{{ version }}</span>
-  <form method="POST" action="/shutdown" style="margin: 0;">
-    <button type="submit" class="btn btn-danger"
-            onclick="return confirm('Quit the application?')">
-      Quit Application
-    </button>
-  </form>
+<div class="footer" style="flex-direction: column; gap: 12px; align-items: stretch;">
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <span>MPXV Luminex QC Tool v{{ version }}</span>
+    <form method="POST" action="/shutdown" style="margin: 0;">
+      <button type="submit" class="btn btn-danger"
+              onclick="return confirm('Quit the application?')">
+        Quit Application
+      </button>
+    </form>
+  </div>
+  <div style="font-size: 11px; color: #999; line-height: 1.6;">
+    Andrew Azman &middot;
+    <a href="mailto:andrew.azman@unige.ch" style="color: #3498db;">andrew.azman@unige.ch</a> &middot;
+    <a href="https://github.com/GenevaIDD/mpox-luminex-qc" target="_blank" style="color: #3498db;">GitHub</a> &middot;
+    <a href="/specification" style="color: #3498db;">Specification</a>
+  </div>
 </div>
 
 <script>

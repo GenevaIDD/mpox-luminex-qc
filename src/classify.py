@@ -4,9 +4,6 @@ import re
 
 import pandas as pd
 
-from .config import PC_DILUTIONS
-
-
 def classify_wells(df: pd.DataFrame) -> pd.DataFrame:
     """Add well_type and dilution columns based on sample_name.
 

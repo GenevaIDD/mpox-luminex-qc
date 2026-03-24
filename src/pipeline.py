@@ -69,7 +69,7 @@ def run_pipeline(
     # 8. QC: kit controls
     kit_ctrl = qc_kit_controls(data)
 
-    # 9. Compute specimen RAU (relative antibody units)
+    # 9. Compute specimen 1/RAU (inverse relative antibody units)
     specimen_results = compute_concentrations(data, fits)
 
     # 10. Plate summary
@@ -123,7 +123,8 @@ def run_pipeline(
     # 13. Export specimen results CSV
     if not specimen_results.empty:
         csv_out = output_dir / f"specimens_{metadata['plate_id']}.csv"
-        specimen_results.to_csv(csv_out, index=False)
+        export_df = specimen_results.rename(columns={"rau": "1/rau"})
+        export_df.to_csv(csv_out, index=False)
 
     return report_path
 

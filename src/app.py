@@ -21,6 +21,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+from .config import APP_VERSION
 from .pipeline import run_pipeline
 
 # ---------------------------------------------------------------------------
@@ -70,7 +71,7 @@ def create_app() -> Flask:
     @app.route("/")
     def index():
         reports = _list_reports(results)
-        return render_template("index.html", reports=reports, version="0.1.0")
+        return render_template("index.html", reports=reports, version=APP_VERSION)
 
     @app.route("/upload", methods=["POST"])
     def upload():
@@ -245,6 +246,33 @@ def create_app() -> Flask:
 
         flash(f"Deleted plate {plate_id}.", "success")
         return redirect(url_for("index"))
+
+    @app.route("/specification")
+    def specification():
+        """Serve the SPECIFICATION.md as a simple HTML page."""
+        spec_path = base / "SPECIFICATION.md"
+        if not spec_path.exists():
+            flash("Specification file not found.", "error")
+            return redirect(url_for("index"))
+        content = spec_path.read_text()
+        # Simple markdown-to-HTML: render as preformatted with basic styling
+        html = (
+            '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+            '<title>MPXV Luminex QC — Specification</title>'
+            '<style>'
+            'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;'
+            ' max-width: 900px; margin: 0 auto; padding: 20px; color: #333; }'
+            'pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit;'
+            ' line-height: 1.7; font-size: 14px; }'
+            'a.back { display: inline-block; margin-bottom: 16px; padding: 8px 16px;'
+            ' background: #3498db; color: #fff; border-radius: 6px; text-decoration: none;'
+            ' font-size: 13px; font-weight: 600; }'
+            '</style></head><body>'
+            '<a class="back" href="/">&larr; Back to Menu</a>'
+            f'<pre>{content}</pre>'
+            '</body></html>'
+        )
+        return html
 
     @app.route("/shutdown", methods=["POST"])
     def shutdown():

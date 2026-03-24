@@ -1,5 +1,7 @@
 """Panel definition and default thresholds for 12-plex MPXV Luminex assay."""
 
+APP_VERSION = "0.2"
+
 MPXV_ANTIGENS = [
     "MVA Ag",
     "VACV A33R",
@@ -20,17 +22,12 @@ MPXV_KIT_CONTROLS = [
 
 ALL_BEADS = MPXV_ANTIGENS + MPXV_KIT_CONTROLS
 
-PC_DILUTIONS = {
-    "1:50": 50,
-    "1:100": 100,
-    "1:200": 200,
-    "1:400": 400,
-    "1:800": 800,
-    "1:1600": 1600,
-    "1:3200": 3200,
-}
-
 # QC thresholds
 BEAD_COUNT_MIN = 30
 PC_CV_THRESHOLD = 0.25
-NC_BEAD_MFI_MAX = 200
+
+# Kit control bead thresholds
+NC_BEAD_MFI_MAX = 150       # 09 NC: flag if above 150
+SCG_MFI_MIN = 10000         # 10 ScG: flag if below 10,000
+FC_MFI_RANGE = (2000, 5000) # 11 FC: flag if outside 2000–5000
+IC_MFI_RANGE = (2000, 3000) # 12 IC: flag if outside 2000–3000

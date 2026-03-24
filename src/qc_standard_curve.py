@@ -15,7 +15,7 @@ def four_pl(x, a, b, c, d):
     Parameters:
         a: minimum asymptote (response at infinite concentration)
         b: Hill slope
-        c: inflection point (EC50)
+        c: inflection point (IC50)
         d: maximum asymptote (response at zero concentration)
     """
     return d + (a - d) / (1.0 + (x / c) ** b)
@@ -66,7 +66,7 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
         x = means["dilution"].values
         y = means["mfi"].values
 
-        params, fit_ok, error, qc_warnings = _fit_one(x, y)
+        params, fit_ok, error, qc_warnings = _fit_one(x, y, x_min=x.min(), x_max=x.max())
         results[analyte] = {
             "params": params,
             "fit_ok": fit_ok,
@@ -79,7 +79,7 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
     return results
 
 
-def _fit_one(x, y):
+def _fit_one(x, y, x_min=None, x_max=None):
     """Fit 4PL to a single analyte's standard curve.
 
     Returns (params, fit_ok, error, warnings) where:
@@ -120,9 +120,11 @@ def _fit_one(x, y):
     if r_squared < 0.95:
         qc_warnings.append(f"R²={r_squared:.3f} (< 0.95)")
 
-    # 2. EC50 within plausible range
-    if c < 10 or c > 10000:
-        qc_warnings.append(f"EC50={c:.1f} outside range [10, 10000]")
+    # 2. IC50 within the tested dilution range (with some margin)
+    ic50_lo = (x_min or x.min()) / 3.0
+    ic50_hi = (x_max or x.max()) * 3.0
+    if c < ic50_lo or c > ic50_hi:
+        qc_warnings.append(f"IC50={c:.1f} outside range [{ic50_lo:.0f}, {ic50_hi:.0f}]")
 
     # 3. Hill slope in reasonable range
     if b < 0.3 or b > 5.0:
@@ -142,21 +144,33 @@ def _fit_one(x, y):
 
 
 def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
-    """Apply 4PL inversion to compute RAU for specimen wells.
+    """Apply 4PL inversion to compute 1/RAU for specimen wells.
 
-    Adds an 'rau' column — Relative Antibody Units, defined as
-    1 / (interpolated dilution factor). Higher RAU = more antibody.
+    Adds columns:
+      'rau' — 1/RAU (inverse Relative Antibody Units), defined as
+              1 / (interpolated dilution factor). Higher value = more antibody.
+      'extrapolated' — True if the specimen MFI falls outside the observed
+                       standard curve range (i.e. above max or below min PC MFI).
     """
     specimens = df[df["well_type"] == "specimen"].copy()
     specimens["rau"] = np.nan
+    specimens["extrapolated"] = False
 
     for analyte, fit_result in fits.items():
-        if not fit_result["fit_ok"]:
+        # Compute 1/RAU whenever we have valid fit params, even if QC checks failed
+        if fit_result.get("params") is None:
             continue
         a, b, c, d = fit_result["params"]
         mask = specimens["analyte"] == analyte
         mfi_vals = specimens.loc[mask, "mfi"].values
         dilution_equiv = invert_4pl(mfi_vals, a, b, c, d)
         specimens.loc[mask, "rau"] = 1.0 / dilution_equiv
+
+        # Flag specimens outside the observed standard curve MFI range
+        std_data = fit_result.get("mean_data")
+        if std_data is not None and not std_data.empty:
+            mfi_lo = std_data["mfi"].min()
+            mfi_hi = std_data["mfi"].max()
+            specimens.loc[mask, "extrapolated"] = (mfi_vals < mfi_lo) | (mfi_vals > mfi_hi)
 
     return specimens
