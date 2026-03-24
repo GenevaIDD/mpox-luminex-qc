@@ -9,7 +9,7 @@ from PIL import Image
 
 # Paths
 PROJECT_ROOT = Path(__file__).parent.parent
-LOGO_SRC = PROJECT_ROOT / "gdd_antibody_icon_bottom_right.png"
+LOGO_SRC = PROJECT_ROOT / "gdd_antibody_square_tighter.png"
 OUTPUT_ICNS = PROJECT_ROOT / "assets" / "app_icon.icns"
 OUTPUT_ICO = PROJECT_ROOT / "assets" / "app_icon.ico"
 

@@ -1,7 +1,7 @@
 # MPXV Luminex QC Tool
 
 <p align="center">
-  <img src="gdd_antibody_icon_bottom_right.png" alt="MPXV Luminex QC" width="128">
+  <img src="gdd_antibody_square_tighter.png" alt="MPXV Luminex QC" width="128">
 </p>
 
 <p align="center">
