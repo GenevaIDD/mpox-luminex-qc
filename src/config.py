@@ -1,6 +1,6 @@
 """Panel definition and default thresholds for 12-plex MPXV Luminex assay."""
 
-APP_VERSION = "0.2"
+APP_VERSION = "0.3"
 
 MPXV_ANTIGENS = [
     "MVA Ag",
@@ -25,6 +25,7 @@ ALL_BEADS = MPXV_ANTIGENS + MPXV_KIT_CONTROLS
 # QC thresholds
 BEAD_COUNT_MIN = 30
 PC_CV_THRESHOLD = 0.25
+RECOVERY_TOLERANCE = 0.30  # ±30% Obs/Exp recovery for standard curve points
 
 # Kit control bead thresholds
 NC_BEAD_MFI_MAX = 150       # 09 NC: flag if above 150

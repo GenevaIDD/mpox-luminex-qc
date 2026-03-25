@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
-from .config import MPXV_ANTIGENS
+from .config import MPXV_ANTIGENS, RECOVERY_TOLERANCE
 
 
 def four_pl(x, a, b, c, d):
@@ -72,8 +72,8 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
         obs_exp = None
         reportable_range = None
         if params is not None:
-            obs_exp = _compute_obs_exp(x, y, params)
-            reportable_range = _compute_reportable_range(x, y, params, tolerance=0.20)
+            obs_exp = _compute_obs_exp(x, y, params, tolerance=RECOVERY_TOLERANCE)
+            reportable_range = _compute_reportable_range(x, y, params, tolerance=RECOVERY_TOLERANCE)
 
         results[analyte] = {
             "params": params,
@@ -153,7 +153,7 @@ def _fit_one(x, y, x_min=None, x_max=None):
     return tuple(popt), fit_ok, error, qc_warnings
 
 
-def _compute_obs_exp(x_expected, y_observed, params):
+def _compute_obs_exp(x_expected, y_observed, params, tolerance=0.30):
     """Backcalculate concentrations from MFI and compute Obs/Exp recovery %.
 
     For each standard point, invert the 4PL to get the "observed" dilution
@@ -161,6 +161,8 @@ def _compute_obs_exp(x_expected, y_observed, params):
 
     Returns a list of dicts with keys: dilution, mfi, obs_dilution, recovery_pct, in_range.
     """
+    lo = (1.0 - tolerance) * 100.0
+    hi = (1.0 + tolerance) * 100.0
     a, b, c, d = params
     obs_dilution = invert_4pl(y_observed, a, b, c, d)
     results = []
@@ -171,7 +173,7 @@ def _compute_obs_exp(x_expected, y_observed, params):
             recovery = np.nan
         else:
             recovery = (observed / expected) * 100.0
-        in_range = not np.isnan(recovery) and 80.0 <= recovery <= 120.0
+        in_range = not np.isnan(recovery) and lo <= recovery <= hi
         results.append({
             "dilution": expected,
             "mfi": y_observed[i],

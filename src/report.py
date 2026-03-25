@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from jinja2 import Environment, FileSystemLoader
 
-from .config import APP_VERSION, MPXV_ANTIGENS, MPXV_KIT_CONTROLS
+from .config import APP_VERSION, MPXV_ANTIGENS, MPXV_KIT_CONTROLS, RECOVERY_TOLERANCE
 
 
 def generate_report(
@@ -60,6 +60,9 @@ def generate_report(
     env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
     template = env.get_template("report.html")
 
+    recovery_lo = int((1.0 - RECOVERY_TOLERANCE) * 100)
+    recovery_hi = int((1.0 + RECOVERY_TOLERANCE) * 100)
+
     html = template.render(
         metadata=metadata,
         summary=summary,
@@ -73,6 +76,7 @@ def generate_report(
         figures=figure_json,
         plotly_js=plotly.offline.get_plotlyjs(),
         version=APP_VERSION,
+        recovery_range=f"{recovery_lo}–{recovery_hi}%",
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,15 +173,41 @@ def _make_standard_curve_plots(
                     showlegend=False, hoverinfo="skip",
                 ), row=row, col=col)
 
-        # Current plate observed points
+        # Current plate observed points — colored by recovery status
         std_data = fit.get("std_data", pd.DataFrame())
+        mean_data = fit.get("mean_data", pd.DataFrame())
+        obs_exp = fit.get("obs_exp")
+
+        # Build a set of dilutions that are out of tolerance
+        bad_dilutions = set()
+        if obs_exp:
+            for pt in obs_exp:
+                if not pt["in_range"]:
+                    bad_dilutions.add(pt["dilution"])
+
         if not std_data.empty:
-            fig.add_trace(go.Scatter(
-                x=std_data["dilution"], y=std_data["mfi"],
-                mode="markers", marker=dict(color="blue", size=6),
-                name="Observed", showlegend=(i == 0),
-                hovertemplate="1:%{x} → MFI %{y:.0f}<extra></extra>",
-            ), row=row, col=col)
+            # In-range points (blue circles)
+            ok_mask = ~std_data["dilution"].isin(bad_dilutions)
+            if ok_mask.any():
+                ok_data = std_data[ok_mask]
+                fig.add_trace(go.Scatter(
+                    x=ok_data["dilution"], y=ok_data["mfi"],
+                    mode="markers", marker=dict(color="blue", size=6),
+                    name="Observed", showlegend=(i == 0),
+                    hovertemplate="1:%{x} → MFI %{y:.0f}<extra></extra>",
+                ), row=row, col=col)
+            # Out-of-range points (red triangles)
+            if (~ok_mask).any():
+                bad_data = std_data[~ok_mask]
+                fig.add_trace(go.Scatter(
+                    x=bad_data["dilution"], y=bad_data["mfi"],
+                    mode="markers", marker=dict(
+                        color="red", size=8, symbol="triangle-up",
+                        line=dict(width=1, color="darkred"),
+                    ),
+                    name="Out of tolerance", showlegend=(i == 0 and len(bad_dilutions) > 0),
+                    hovertemplate="1:%{x} → MFI %{y:.0f} (out of tolerance)<extra></extra>",
+                ), row=row, col=col)
 
         # Fitted curve
         params = fit.get("params")
@@ -241,6 +271,47 @@ def _make_replicate_plot(cv_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _plate_sort_and_label(history: pd.DataFrame) -> list[tuple[str, str]]:
+    """Sort plates by run_date and create short labels (date + PLATEXX).
+
+    Returns list of (plate_id, label) tuples sorted by date.
+    """
+    import re
+    from datetime import datetime
+
+    plate_info = history.groupby("plate_id").first().reset_index()
+    if "run_date" in plate_info.columns:
+        # Parse run_date and sort
+        def _parse_date(d):
+            for fmt in ("%m/%d/%Y %I:%M %p", "%m/%d/%Y %I:%M:%S %p", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(str(d).strip(), fmt)
+                except (ValueError, TypeError):
+                    continue
+            return datetime.min
+        plate_info["_sort_date"] = plate_info["run_date"].apply(_parse_date)
+        plate_info = plate_info.sort_values("_sort_date")
+
+    result = []
+    for _, row in plate_info.iterrows():
+        pid = row["plate_id"]
+        # Extract PLATEXX from plate_id
+        m = re.search(r"(PLATE\s*\d+)", pid, re.IGNORECASE)
+        plate_part = m.group(1) if m else pid[-8:]
+        # Extract short date
+        date_part = ""
+        if "run_date" in row and row["run_date"]:
+            try:
+                dt = row["_sort_date"] if "_sort_date" in row else None
+                if dt and dt != datetime.min:
+                    date_part = dt.strftime("%m/%d")
+            except Exception:
+                pass
+        label = f"{date_part} {plate_part}".strip() if date_part else plate_part
+        result.append((pid, label))
+    return result
+
+
 def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) -> go.Figure | None:
     """Panel plot: PC MFI by plate for each analyte (2x4 grid)."""
     if history is None or history.empty:
@@ -253,20 +324,15 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) ->
     fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
                         horizontal_spacing=0.06, vertical_spacing=0.12)
 
-    plates = history["plate_id"].unique()
-    # Short plate labels (last part, e.g. "Plate01")
-    plate_labels = []
-    for p in plates:
-        parts = p.split("-")
-        label = next((x for x in reversed(parts) if "Plate" in x), p[-8:])
-        plate_labels.append(label)
+    plate_order = _plate_sort_and_label(history)
+    plates = [pid for pid, _ in plate_order]
+    plate_labels = [label for _, label in plate_order]
 
     for i, analyte in enumerate(antigens[:8]):
         row = i // 4 + 1
         col = i % 4 + 1
         adata = history[history["analyte"] == analyte]
 
-        # One point per plate (mean MFI across dilutions for that analyte)
         for dil in sorted(adata["dilution"].unique()):
             dil_data = adata[adata["dilution"] == dil]
             plate_mfis = []
@@ -331,12 +397,9 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str) -> 
     fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
                         horizontal_spacing=0.06, vertical_spacing=0.12)
 
-    plates = history_nc["plate_id"].unique()
-    plate_labels = []
-    for p in plates:
-        parts = p.split("-")
-        label = next((x for x in reversed(parts) if "Plate" in x), p[-8:])
-        plate_labels.append(label)
+    plate_order = _plate_sort_and_label(history_nc)
+    plates = [pid for pid, _ in plate_order]
+    plate_labels = [label for _, label in plate_order]
 
     for i, analyte in enumerate(antigens[:8]):
         row = i // 4 + 1

@@ -107,7 +107,7 @@
 
 <details>
 <summary>Standard Recovery (Obs/Exp) — backcalculated vs expected dilutions (click to expand)</summary>
-<p style="font-size:12px; color:#666;">For each standard point, the measured MFI is backcalculated through the 4PL curve to get the "observed" dilution. Recovery = (Observed / Expected) × 100%. Values outside 80–120% are flagged. The reportable range (LLOQ–ULOQ) spans standard points with acceptable recovery.</p>
+<p style="font-size:12px; color:#666;">For each standard point, the measured MFI is backcalculated through the 4PL curve to get the "observed" dilution. Recovery = (Observed / Expected) × 100%. Values outside {{ recovery_range }} are flagged. The reportable range (LLOQ–ULOQ) spans standard points with acceptable recovery.</p>
 {% for row in fits %}
 {% if row.obs_exp %}
 <h4>{{ row.analyte }}</h4>
