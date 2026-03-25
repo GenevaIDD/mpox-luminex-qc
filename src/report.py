@@ -81,29 +81,67 @@ def generate_report(
 
 
 def _make_bead_heatmap(by_well: pd.DataFrame) -> go.Figure:
-    """Plate heatmap of median bead counts."""
+    """Plate layout plot of median bead counts with marker shapes by well type."""
     by_well = by_well.copy()
     by_well["row"] = by_well["well"].str[0]
     by_well["col"] = by_well["well"].str[1:].astype(int)
+    # Map row letters to numeric for plotting (A=0, B=1, ...)
+    row_labels = list("ABCDEFGH")
+    by_well["row_num"] = by_well["row"].map({r: i for i, r in enumerate(row_labels)})
 
-    pivot = by_well.pivot(index="row", columns="col", values="median_count")
-    pivot = pivot.reindex(index=list("ABCDEFGH"))
+    # Well type styling
+    type_style = {
+        "pc":       {"symbol": "circle",         "name": "PC (Standard)"},
+        "nc":       {"symbol": "x",              "name": "NC (Negative)"},
+        "specimen": {"symbol": "square",         "name": "Specimen"},
+    }
 
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot.values,
-        x=[str(c) for c in pivot.columns],
-        y=list(pivot.index),
-        colorscale="YlOrRd_r",
-        colorbar=dict(title="Median<br>Bead Count"),
-        text=np.round(pivot.values, 0),
-        texttemplate="%{text:.0f}",
-        hovertemplate="Well %{y}%{x}: %{z:.0f} beads<extra></extra>",
-    ))
+    fig = go.Figure()
+
+    for wtype, style in type_style.items():
+        subset = by_well[by_well["well_type"] == wtype]
+        if subset.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=subset["col"],
+            y=subset["row_num"],
+            mode="markers+text",
+            marker=dict(
+                symbol=style["symbol"],
+                size=22,
+                color=subset["median_count"],
+                colorscale="YlOrRd_r",
+                cmin=by_well["median_count"].min(),
+                cmax=by_well["median_count"].max(),
+                colorbar=dict(title="Median<br>Bead Count") if wtype == "specimen" else None,
+                showscale=(wtype == "specimen"),
+                line=dict(width=1, color="grey"),
+            ),
+            text=subset["median_count"].round(0).astype(int).astype(str),
+            textposition="middle center",
+            textfont=dict(size=8),
+            name=style["name"],
+            hovertemplate=(
+                "Well %{customdata[0]}: %{customdata[1]:.0f} beads"
+                "<br>Type: " + style["name"] + "<extra></extra>"
+            ),
+            customdata=list(zip(subset["well"], subset["median_count"])),
+        ))
+
     fig.update_layout(
         title="Median Bead Count by Well",
-        xaxis_title="Column", yaxis_title="Row",
-        yaxis=dict(autorange="reversed"),
-        height=350, margin=dict(t=40, b=40),
+        xaxis=dict(
+            title="Column", tickmode="array",
+            tickvals=list(range(1, 13)), ticktext=[str(i) for i in range(1, 13)],
+            range=[0.5, 12.5],
+        ),
+        yaxis=dict(
+            title="Row", tickmode="array",
+            tickvals=list(range(8)), ticktext=row_labels,
+            autorange="reversed", range=[-0.5, 7.5],
+        ),
+        height=400, margin=dict(t=40, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     return fig
 
@@ -389,6 +427,8 @@ def _fits_to_table(fits: dict) -> list[dict]:
             row.update({"a": "-", "b": "-", "c": "-", "d": "-"})
         row["error"] = f.get("error", "")
         row["qc_warnings"] = f.get("qc_warnings", [])
+        row["obs_exp"] = f.get("obs_exp")
+        row["reportable_range"] = f.get("reportable_range")
         rows.append(row)
     return rows
 

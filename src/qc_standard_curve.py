@@ -67,6 +67,14 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
         y = means["mfi"].values
 
         params, fit_ok, error, qc_warnings = _fit_one(x, y, x_min=x.min(), x_max=x.max())
+
+        # Obs/Exp recovery and reportable range
+        obs_exp = None
+        reportable_range = None
+        if params is not None:
+            obs_exp = _compute_obs_exp(x, y, params)
+            reportable_range = _compute_reportable_range(x, y, params, tolerance=0.20)
+
         results[analyte] = {
             "params": params,
             "fit_ok": fit_ok,
@@ -74,6 +82,8 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
             "mean_data": means,
             "error": error,
             "qc_warnings": qc_warnings,
+            "obs_exp": obs_exp,
+            "reportable_range": reportable_range,
         }
 
     return results
@@ -143,6 +153,66 @@ def _fit_one(x, y, x_min=None, x_max=None):
     return tuple(popt), fit_ok, error, qc_warnings
 
 
+def _compute_obs_exp(x_expected, y_observed, params):
+    """Backcalculate concentrations from MFI and compute Obs/Exp recovery %.
+
+    For each standard point, invert the 4PL to get the "observed" dilution
+    from the measured MFI, then compare to the expected (known) dilution.
+
+    Returns a list of dicts with keys: dilution, mfi, obs_dilution, recovery_pct, in_range.
+    """
+    a, b, c, d = params
+    obs_dilution = invert_4pl(y_observed, a, b, c, d)
+    results = []
+    for i in range(len(x_expected)):
+        expected = x_expected[i]
+        observed = obs_dilution[i]
+        if np.isnan(observed) or expected == 0:
+            recovery = np.nan
+        else:
+            recovery = (observed / expected) * 100.0
+        in_range = not np.isnan(recovery) and 80.0 <= recovery <= 120.0
+        results.append({
+            "dilution": expected,
+            "mfi": y_observed[i],
+            "obs_dilution": observed if not np.isnan(observed) else None,
+            "recovery_pct": round(recovery, 1) if not np.isnan(recovery) else None,
+            "in_range": in_range,
+        })
+    return results
+
+
+def _compute_reportable_range(x, y, params, tolerance=0.20):
+    """Determine the reportable range (LLOQ to ULOQ) based on Obs/Exp recovery.
+
+    The reportable range is the dilution range where backcalculated recovery
+    is within ±tolerance (default 20%) of the expected value.
+
+    Returns dict with lloq, uloq (as 1/RAU values), lloq_dilution, uloq_dilution.
+    """
+    a, b, c, d = params
+    obs_exp = _compute_obs_exp(x, y, params)
+
+    # Find dilutions where recovery is within range
+    valid_dilutions = [
+        r["dilution"] for r in obs_exp
+        if r["recovery_pct"] is not None and (100 - tolerance * 100) <= r["recovery_pct"] <= (100 + tolerance * 100)
+    ]
+
+    if not valid_dilutions:
+        return {"lloq": None, "uloq": None, "lloq_dilution": None, "uloq_dilution": None}
+
+    lloq_dilution = max(valid_dilutions)  # highest dilution = lowest concentration = LLOQ
+    uloq_dilution = min(valid_dilutions)  # lowest dilution = highest concentration = ULOQ
+
+    return {
+        "lloq": 1.0 / lloq_dilution if lloq_dilution > 0 else None,
+        "uloq": 1.0 / uloq_dilution if uloq_dilution > 0 else None,
+        "lloq_dilution": lloq_dilution,
+        "uloq_dilution": uloq_dilution,
+    }
+
+
 def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
     """Apply 4PL inversion to compute 1/RAU for specimen wells.
 
@@ -155,6 +225,8 @@ def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
     specimens = df[df["well_type"] == "specimen"].copy()
     specimens["rau"] = np.nan
     specimens["extrapolated"] = False
+    specimens["below_lloq"] = False
+    specimens["above_uloq"] = False
 
     for analyte, fit_result in fits.items():
         # Compute 1/RAU whenever we have valid fit params, even if QC checks failed
@@ -164,7 +236,8 @@ def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
         mask = specimens["analyte"] == analyte
         mfi_vals = specimens.loc[mask, "mfi"].values
         dilution_equiv = invert_4pl(mfi_vals, a, b, c, d)
-        specimens.loc[mask, "rau"] = 1.0 / dilution_equiv
+        rau_vals = 1.0 / dilution_equiv
+        specimens.loc[mask, "rau"] = rau_vals
 
         # Flag specimens outside the observed standard curve MFI range
         std_data = fit_result.get("mean_data")
@@ -172,5 +245,11 @@ def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
             mfi_lo = std_data["mfi"].min()
             mfi_hi = std_data["mfi"].max()
             specimens.loc[mask, "extrapolated"] = (mfi_vals < mfi_lo) | (mfi_vals > mfi_hi)
+
+        # Flag specimens outside reportable range
+        rr = fit_result.get("reportable_range")
+        if rr and rr["lloq"] is not None and rr["uloq"] is not None:
+            specimens.loc[mask, "below_lloq"] = rau_vals < rr["lloq"]
+            specimens.loc[mask, "above_uloq"] = rau_vals > rr["uloq"]
 
     return specimens

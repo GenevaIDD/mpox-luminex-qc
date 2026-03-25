@@ -16,7 +16,7 @@ def qc_bead_counts(df: pd.DataFrame, min_count: int = BEAD_COUNT_MIN) -> dict:
     flagged = df[df["count"] < min_count][["well", "sample_name", "analyte", "count"]].copy()
 
     by_well = (
-        df.groupby(["well", "sample_name"])["count"]
+        df.groupby(["well", "sample_name", "well_type"])["count"]
         .median()
         .reset_index()
         .rename(columns={"count": "median_count"})

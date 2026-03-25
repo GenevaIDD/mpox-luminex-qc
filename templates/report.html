@@ -89,12 +89,13 @@
 <h2>3. PC Standard Curves (4PL)</h2>
 
 <table>
-  <tr><th>Analyte</th><th>Fit OK</th><th>a (min)</th><th>b (slope)</th><th>c (IC50)</th><th>d (max)</th><th>Issues</th></tr>
+  <tr><th>Analyte</th><th>Fit OK</th><th>a (min)</th><th>b (slope)</th><th>c (IC50)</th><th>d (max)</th><th>Reportable Range</th><th>Issues</th></tr>
   {% for row in fits %}
   <tr class="{{ 'ok' if row.fit_ok else 'flag' }}">
     <td>{{ row.analyte }}</td>
     <td>{{ 'Yes' if row.fit_ok else 'FAILED' }}</td>
     <td>{{ row.a }}</td><td>{{ row.b }}</td><td>{{ row.c }}</td><td>{{ row.d }}</td>
+    <td>{% if row.reportable_range %}1:{{ row.reportable_range.uloq_dilution|int }} – 1:{{ row.reportable_range.lloq_dilution|int }}{% else %}—{% endif %}</td>
     <td>{% if row.error %}{{ row.error }}{% endif %}</td>
   </tr>
   {% endfor %}
@@ -103,6 +104,28 @@
 {% if 'standard_curves' in figures %}
 <div class="plot-container" id="standard_curves"></div>
 {% endif %}
+
+<details>
+<summary>Standard Recovery (Obs/Exp) — backcalculated vs expected dilutions (click to expand)</summary>
+<p style="font-size:12px; color:#666;">For each standard point, the measured MFI is backcalculated through the 4PL curve to get the "observed" dilution. Recovery = (Observed / Expected) × 100%. Values outside 80–120% are flagged. The reportable range (LLOQ–ULOQ) spans standard points with acceptable recovery.</p>
+{% for row in fits %}
+{% if row.obs_exp %}
+<h4>{{ row.analyte }}</h4>
+<table>
+  <tr><th>Expected Dilution</th><th>MFI</th><th>Backcalculated Dilution</th><th>Recovery %</th><th>Status</th></tr>
+  {% for pt in row.obs_exp %}
+  <tr class="{{ 'ok' if pt.in_range else 'flag' }}">
+    <td>1:{{ pt.dilution|int }}</td>
+    <td>{{ pt.mfi|round(0)|int }}</td>
+    <td>{% if pt.obs_dilution %}1:{{ pt.obs_dilution|round(0)|int }}{% else %}—{% endif %}</td>
+    <td>{% if pt.recovery_pct %}{{ pt.recovery_pct }}%{% else %}—{% endif %}</td>
+    <td>{{ '✓' if pt.in_range else '✗ Out of range' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endfor %}
+</details>
 </div>
 
 <!-- Section 4: PC Replicate CV -->
