@@ -11,7 +11,7 @@ def load_history(path: str | Path) -> pd.DataFrame:
     path = Path(path)
     if not path.exists():
         return pd.DataFrame()
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     if not data:
         return pd.DataFrame()
     return pd.DataFrame(data)
@@ -37,7 +37,7 @@ def save_history(df: pd.DataFrame, path: str | Path) -> None:
     cleaned = []
     for rec in records:
         cleaned.append({k: _to_native(v) for k, v in rec.items()})
-    path.write_text(json.dumps(cleaned, indent=2))
+    path.write_text(json.dumps(cleaned, indent=2), encoding="utf-8")
 
 
 def _to_native(val):

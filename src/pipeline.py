@@ -124,7 +124,7 @@ def run_pipeline(
     if not specimen_results.empty:
         csv_out = output_dir / f"specimens_{metadata['plate_id']}.csv"
         export_df = specimen_results.rename(columns={"rau": "1/rau"})
-        export_df.to_csv(csv_out, index=False)
+        export_df.to_csv(csv_out, index=False, encoding="utf-8")
 
     return report_path
 

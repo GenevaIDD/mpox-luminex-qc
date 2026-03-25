@@ -174,7 +174,7 @@ def create_app() -> Flask:
             # All specimens
             spec_frames = []
             for csv_file in sorted(specimens_dir.glob("specimens_*.csv")):
-                df = pd.read_csv(csv_file)
+                df = pd.read_csv(csv_file, encoding="utf-8")
                 plate_id = csv_file.stem.replace("specimens_", "")
                 df.insert(0, "plate_id", plate_id)
                 spec_frames.append(df)
@@ -186,7 +186,7 @@ def create_app() -> Flask:
             # Fit history (standard curve parameters)
             fit_path = history_dir / "fit_history.json"
             if fit_path.exists():
-                fit_data = pd.DataFrame(json.loads(fit_path.read_text()))
+                fit_data = pd.DataFrame(json.loads(fit_path.read_text(encoding="utf-8")))
                 if not fit_data.empty:
                     fit_data.to_excel(
                         writer, sheet_name="standard_curve_params", index=False
@@ -195,7 +195,7 @@ def create_app() -> Flask:
             # Standard curve raw data
             std_path = history_dir / "std_curve_history.json"
             if std_path.exists():
-                std_data = pd.DataFrame(json.loads(std_path.read_text()))
+                std_data = pd.DataFrame(json.loads(std_path.read_text(encoding="utf-8")))
                 if not std_data.empty:
                     std_data.to_excel(
                         writer, sheet_name="standard_curve_data", index=False
@@ -204,7 +204,7 @@ def create_app() -> Flask:
             # NC levels
             nc_path = history_dir / "nc_history.json"
             if nc_path.exists():
-                nc_data = pd.DataFrame(json.loads(nc_path.read_text()))
+                nc_data = pd.DataFrame(json.loads(nc_path.read_text(encoding="utf-8")))
                 if not nc_data.empty:
                     nc_data.to_excel(
                         writer, sheet_name="nc_levels", index=False
@@ -237,10 +237,10 @@ def create_app() -> Flask:
         history_dir = results / "history"
         for hist_file in history_dir.glob("*.json"):
             try:
-                data = json.loads(hist_file.read_text())
+                data = json.loads(hist_file.read_text(encoding="utf-8"))
                 filtered = [r for r in data if r.get("plate_id") != plate_id]
                 if len(filtered) < len(data):
-                    hist_file.write_text(json.dumps(filtered, indent=2))
+                    hist_file.write_text(json.dumps(filtered, indent=2), encoding="utf-8")
             except Exception:
                 pass
 
@@ -254,7 +254,7 @@ def create_app() -> Flask:
         if not spec_path.exists():
             flash("Specification file not found.", "error")
             return redirect(url_for("index"))
-        content = spec_path.read_text()
+        content = spec_path.read_text(encoding="utf-8")
         # Simple markdown-to-HTML: render as preformatted with basic styling
         html = (
             '<!DOCTYPE html><html><head><meta charset="UTF-8">'
