@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate macOS .icns and Windows .ico app icons from the logo."""
 
+import platform
 import subprocess
 import tempfile
 from pathlib import Path
@@ -64,13 +65,15 @@ def main():
             img.save(iconset_dir / name, "PNG")
             print(f"  Created {name} ({size}x{size})")
 
-        # Convert to .icns using macOS iconutil
-        subprocess.run(
-            ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(OUTPUT_ICNS)],
-            check=True,
-        )
-
-    print(f"\nmacOS icon saved to: {OUTPUT_ICNS}")
+        # Convert to .icns using macOS iconutil (only available on macOS)
+        if platform.system() == "Darwin":
+            subprocess.run(
+                ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(OUTPUT_ICNS)],
+                check=True,
+            )
+            print(f"\nmacOS icon saved to: {OUTPUT_ICNS}")
+        else:
+            print("\nSkipping .icns generation (not on macOS)")
 
     # Windows .ico (sizes: 16, 32, 48, 64, 128, 256)
     ico_sizes = [16, 32, 48, 64, 128, 256]
