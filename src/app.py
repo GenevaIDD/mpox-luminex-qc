@@ -6,6 +6,8 @@ import os
 import signal
 import sys
 import traceback
+
+import yaml
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +25,7 @@ from werkzeug.utils import secure_filename
 
 from .config import APP_VERSION
 from .pipeline import run_pipeline
+from .settings import load_config, save_config, reset_config, get_config_path
 
 # ---------------------------------------------------------------------------
 # Path helpers
@@ -273,6 +276,160 @@ def create_app() -> Flask:
             '</body></html>'
         )
         return html
+
+    # ------------------------------------------------------------------
+    # Settings routes
+    # ------------------------------------------------------------------
+
+    @app.route("/settings")
+    def settings():
+        config = load_config()
+        return render_template(
+            "settings.html",
+            config=config,
+            version=APP_VERSION,
+            config_path=str(get_config_path()),
+        )
+
+    @app.route("/settings", methods=["POST"])
+    def save_settings():
+        config = load_config()
+
+        # Assay info
+        config["assay"]["name"] = request.form.get("assay_name", "").strip()
+        config["assay"]["description"] = request.form.get("assay_description", "").strip()
+        config["standard"]["bead_batch"] = request.form.get("bead_batch", "").strip()
+
+        # Panel antigens
+        for i, ag in enumerate(config["panel"]["antigens"]):
+            name = request.form.get(f"ag_name_{i}", "").strip()
+            region = request.form.get(f"ag_region_{i}", "0")
+            if name:
+                ag["name"] = name
+            try:
+                ag["bead_region"] = int(region)
+            except ValueError:
+                pass
+
+        # Panel kit controls
+        for i, kc in enumerate(config["panel"]["kit_controls"]):
+            name = request.form.get(f"kc_name_{i}", "").strip()
+            region = request.form.get(f"kc_region_{i}", "0")
+            if name:
+                kc["name"] = name
+            try:
+                kc["bead_region"] = int(region)
+            except ValueError:
+                pass
+
+        # Well classification patterns
+        pc_pats = request.form.get("pc_patterns", "")
+        nc_pats = request.form.get("nc_patterns", "")
+        config["well_classification"]["pc_patterns"] = [p.strip() for p in pc_pats.split(",") if p.strip()]
+        config["well_classification"]["nc_patterns"] = [p.strip() for p in nc_pats.split(",") if p.strip()]
+
+        # Standard curve
+        dilution_mode = request.form.get("dilution_mode", "auto")
+        if dilution_mode == "auto":
+            config["standard"]["dilutions"] = "auto"
+        else:
+            manual = request.form.get("manual_dilutions", "")
+            try:
+                config["standard"]["dilutions"] = [int(d.strip()) for d in manual.split(",") if d.strip()]
+            except ValueError:
+                flash("Invalid dilution values. Use comma-separated integers.", "error")
+                return redirect(url_for("settings"))
+
+        # Specimen dilution
+        try:
+            config["specimens"]["default_dilution"] = int(request.form.get("specimen_default_dilution", 100))
+        except ValueError:
+            pass
+
+        # QC thresholds
+        qc = config["qc_thresholds"]
+        for key in ("bead_count_min", "nc_bead_mfi_max", "scg_mfi_min"):
+            try:
+                qc[key] = int(request.form.get(key, qc[key]))
+            except (ValueError, TypeError):
+                pass
+        for key in ("pc_cv_threshold", "recovery_tolerance"):
+            try:
+                qc[key] = float(request.form.get(key, qc[key]))
+            except (ValueError, TypeError):
+                pass
+        # Range thresholds
+        try:
+            qc["fc_mfi_range"] = [
+                int(request.form.get("fc_mfi_min", qc["fc_mfi_range"][0])),
+                int(request.form.get("fc_mfi_max", qc["fc_mfi_range"][1])),
+            ]
+        except (ValueError, TypeError):
+            pass
+        try:
+            qc["ic_mfi_range"] = [
+                int(request.form.get("ic_mfi_min", qc["ic_mfi_range"][0])),
+                int(request.form.get("ic_mfi_max", qc["ic_mfi_range"][1])),
+            ]
+        except (ValueError, TypeError):
+            pass
+
+        save_config(config)
+        flash("Settings saved.", "success")
+        return redirect(url_for("settings"))
+
+    @app.route("/settings/reset", methods=["POST"])
+    def reset_settings():
+        reset_config()
+        flash("Settings reset to defaults.", "success")
+        return redirect(url_for("settings"))
+
+    @app.route("/download/plate-layout-template")
+    def download_plate_layout_template():
+        """Generate and serve a blank plate layout XLSX template."""
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plate Layout"
+        ws.append(["well", "sample_id", "visit_date", "dilution"])
+        # Pre-fill well IDs for a 96-well plate
+        for row_letter in "ABCDEFGH":
+            for col_num in range(1, 13):
+                ws.append([f"{row_letter}{col_num}", "", "", ""])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name="plate_layout_template.xlsx",
+        )
+
+    @app.route("/settings/export")
+    def export_config():
+        config = load_config()
+        buf = io.BytesIO()
+        buf.write(yaml.dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True).encode("utf-8"))
+        buf.seek(0)
+        return send_file(buf, mimetype="text/yaml", as_attachment=True, download_name="mpxv_luminex_config.yaml")
+
+    @app.route("/settings/import", methods=["POST"])
+    def import_config():
+        config_file = request.files.get("config_file")
+        if not config_file or not config_file.filename:
+            flash("No file selected.", "error")
+            return redirect(url_for("settings"))
+        try:
+            content = config_file.read().decode("utf-8")
+            imported = yaml.safe_load(content)
+            if not isinstance(imported, dict):
+                raise ValueError("Invalid YAML structure")
+            save_config(imported)
+            flash("Configuration imported.", "success")
+        except Exception as exc:
+            flash(f"Import failed: {exc}", "error")
+        return redirect(url_for("settings"))
 
     @app.route("/shutdown", methods=["POST"])
     def shutdown():

@@ -65,7 +65,10 @@
 </head>
 <body>
 
+<div style="display:flex; justify-content:space-between; align-items:center;">
 <h1>MPXV Luminex QC Tool</h1>
+<a href="/settings" class="btn btn-secondary" style="height:fit-content;">&#9881; Settings</a>
+</div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
 {% if messages %}
@@ -147,6 +150,17 @@
   No reports generated yet. Upload a CSV to get started.
 </p>
 {% endif %}
+
+<!-- Downloads -->
+<h2>Templates &amp; Defaults</h2>
+<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
+  <a href="/settings/export" class="btn btn-secondary" style="font-size: 13px; padding: 8px 16px;">
+    Download Default Config (YAML)
+  </a>
+  <a href="/download/plate-layout-template" class="btn btn-secondary" style="font-size: 13px; padding: 8px 16px;">
+    Download Plate Layout Template (XLSX)
+  </a>
+</div>
 
 <div class="footer" style="flex-direction: column; gap: 12px; align-items: stretch;">
   <div style="display: flex; justify-content: space-between; align-items: center;">

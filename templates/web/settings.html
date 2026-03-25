@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Settings — MPXV Luminex QC</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f8f9fa; }
+  h1 { color: #333; }
+  h2 { color: #555; margin-top: 30px; border-bottom: 2px solid #e55070; padding-bottom: 5px; }
+  .nav { margin-bottom: 20px; }
+  .nav a { color: #e55070; text-decoration: none; font-weight: 500; }
+  .nav a:hover { text-decoration: underline; }
+  .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  label { display: block; font-weight: 500; margin: 10px 0 4px; color: #444; }
+  label .hint { font-weight: normal; color: #999; font-size: 0.85em; }
+  input[type="text"], input[type="number"] { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+  input[type="number"] { width: 150px; }
+  .row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .row .field { flex: 1; min-width: 150px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  th, td { padding: 6px 10px; border: 1px solid #ddd; text-align: left; }
+  th { background: #f0f0f0; font-size: 0.9em; }
+  td input { width: 100%; border: none; padding: 4px; font-size: 14px; }
+  .btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; text-decoration: none; margin-right: 10px; }
+  .btn-primary { background: #e55070; color: white; }
+  .btn-primary:hover { background: #d03060; }
+  .btn-secondary { background: #6c757d; color: white; }
+  .btn-secondary:hover { background: #5a6268; }
+  .btn-danger { background: #dc3545; color: white; }
+  .btn-danger:hover { background: #c82333; }
+  .actions { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .flash { padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; }
+  .flash.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+  .flash.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+  .range-inputs { display: flex; gap: 8px; align-items: center; }
+  .range-inputs input { width: 100px; }
+</style>
+</head>
+<body>
+<div class="nav"><a href="/">&larr; Back to Menu</a></div>
+
+<h1>Settings</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+{% endwith %}
+
+<form method="post" action="/settings">
+
+<!-- Assay Info -->
+<h2>Assay Information</h2>
+<div class="card">
+  <div class="row">
+    <div class="field">
+      <label>Assay Name</label>
+      <input type="text" name="assay_name" value="{{ config.assay.name }}">
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <input type="text" name="assay_description" value="{{ config.assay.description }}">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>Bead Batch / Lot <span class="hint">(optional, for tracking)</span></label>
+      <input type="text" name="bead_batch" value="{{ config.standard.bead_batch }}">
+    </div>
+  </div>
+</div>
+
+<!-- Panel: Antigens -->
+<h2>Assay Panel</h2>
+<div class="card">
+  <h3>Antigens</h3>
+  <table>
+    <tr><th>#</th><th>Analyte Name</th><th>Bead Region</th></tr>
+    {% for ag in config.panel.antigens %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td><input type="text" name="ag_name_{{ loop.index0 }}" value="{{ ag.name }}"></td>
+      <td><input type="number" name="ag_region_{{ loop.index0 }}" value="{{ ag.bead_region }}" style="width:80px"></td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Kit Controls</h3>
+  <table>
+    <tr><th>#</th><th>Control Name</th><th>Bead Region</th></tr>
+    {% for kc in config.panel.kit_controls %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td><input type="text" name="kc_name_{{ loop.index0 }}" value="{{ kc.name }}"></td>
+      <td><input type="number" name="kc_region_{{ loop.index0 }}" value="{{ kc.bead_region }}" style="width:80px"></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- Well Classification -->
+<h2>Well Classification</h2>
+<div class="card">
+  <label>Positive Control Patterns <span class="hint">(regex, comma-separated)</span></label>
+  <input type="text" name="pc_patterns" value="{{ config.well_classification.pc_patterns | join(', ') }}">
+
+  <label>Negative Control Patterns <span class="hint">(regex, comma-separated)</span></label>
+  <input type="text" name="nc_patterns" value="{{ config.well_classification.nc_patterns | join(', ') }}">
+
+  <p style="font-size:0.85em; color:#888;">Everything not matching PC or NC patterns is treated as a specimen.</p>
+</div>
+
+<!-- Standard Curve -->
+<h2>Standard Curve</h2>
+<div class="card">
+  <label>Dilution Mode</label>
+  <select name="dilution_mode" style="padding:8px; border:1px solid #ddd; border-radius:4px;">
+    <option value="auto" {{ 'selected' if config.standard.dilutions == 'auto' }}>Auto (parse from sample names)</option>
+    <option value="manual" {{ 'selected' if config.standard.dilutions != 'auto' }}>Manual (specify below)</option>
+  </select>
+
+  <label>Manual Dilutions <span class="hint">(comma-separated, e.g. 100, 300, 900, 2700, 8100, 24300, 72900)</span></label>
+  <input type="text" name="manual_dilutions" value="{% if config.standard.dilutions != 'auto' %}{{ config.standard.dilutions | join(', ') }}{% endif %}">
+</div>
+
+<!-- Specimens -->
+<h2>Specimens</h2>
+<div class="card">
+  <div class="row">
+    <div class="field">
+      <label>Default Dilution Factor <span class="hint">(e.g. 100 for 1:100)</span></label>
+      <input type="number" name="specimen_default_dilution" value="{{ config.specimens.default_dilution }}" min="1">
+    </div>
+  </div>
+  <p style="font-size:0.85em; color:#888;">Per-well dilution overrides can be specified in the plate layout XLSX (add a "dilution" column).</p>
+</div>
+
+<!-- QC Thresholds -->
+<h2>QC Thresholds</h2>
+<div class="card">
+  <div class="row">
+    <div class="field">
+      <label>Min Bead Count</label>
+      <input type="number" name="bead_count_min" value="{{ config.qc_thresholds.bead_count_min }}" min="1">
+    </div>
+    <div class="field">
+      <label>PC Replicate CV Threshold</label>
+      <input type="number" name="pc_cv_threshold" value="{{ config.qc_thresholds.pc_cv_threshold }}" step="0.01" min="0" max="1">
+    </div>
+    <div class="field">
+      <label>Recovery Tolerance <span class="hint">(e.g. 0.30 = &plusmn;30%)</span></label>
+      <input type="number" name="recovery_tolerance" value="{{ config.qc_thresholds.recovery_tolerance }}" step="0.01" min="0" max="1">
+    </div>
+  </div>
+
+  <h3>Kit Control Thresholds</h3>
+  <div class="row">
+    <div class="field">
+      <label>NC Bead MFI Max</label>
+      <input type="number" name="nc_bead_mfi_max" value="{{ config.qc_thresholds.nc_bead_mfi_max }}">
+    </div>
+    <div class="field">
+      <label>ScG MFI Min</label>
+      <input type="number" name="scg_mfi_min" value="{{ config.qc_thresholds.scg_mfi_min }}">
+    </div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>FC MFI Range</label>
+      <div class="range-inputs">
+        <input type="number" name="fc_mfi_min" value="{{ config.qc_thresholds.fc_mfi_range[0] }}">
+        <span>to</span>
+        <input type="number" name="fc_mfi_max" value="{{ config.qc_thresholds.fc_mfi_range[1] }}">
+      </div>
+    </div>
+    <div class="field">
+      <label>IC MFI Range</label>
+      <div class="range-inputs">
+        <input type="number" name="ic_mfi_min" value="{{ config.qc_thresholds.ic_mfi_range[0] }}">
+        <span>to</span>
+        <input type="number" name="ic_mfi_max" value="{{ config.qc_thresholds.ic_mfi_range[1] }}">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Actions -->
+<div class="actions">
+  <button type="submit" class="btn btn-primary">Save Settings</button>
+  <a href="/settings/export" class="btn btn-secondary">Export Config (YAML)</a>
+  <button type="button" class="btn btn-danger" onclick="if(confirm('Reset all settings to defaults?')) document.getElementById('reset-form').submit();">Reset to Defaults</button>
+</div>
+
+</form>
+
+<form id="reset-form" method="post" action="/settings/reset" style="display:none;"></form>
+
+<!-- Import -->
+<div class="card" style="margin-top: 20px;">
+  <h3>Import Configuration</h3>
+  <form method="post" action="/settings/import" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:center;">
+    <input type="file" name="config_file" accept=".yaml,.yml">
+    <button type="submit" class="btn btn-secondary">Import</button>
+  </form>
+</div>
+
+<div style="margin-top:30px; padding-top:15px; border-top:1px solid #ddd; font-size:0.85em; color:#999;">
+  MPXV Luminex QC v{{ version }} |
+  Config file: <code>{{ config_path }}</code>
+</div>
+
+</body>
+</html>

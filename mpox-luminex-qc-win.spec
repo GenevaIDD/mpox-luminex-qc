@@ -35,6 +35,8 @@ a = Analysis(
         "src.qc_history",
         "src.plate_summary",
         "src.report",
+        "src.settings",
+        "yaml",
         "scipy.optimize",
         "scipy.special",
         "scipy.stats",

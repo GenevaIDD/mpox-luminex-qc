@@ -359,8 +359,9 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) ->
     fig.update_layout(
         height=600,
         title_text="PC Standard MFI Across Plates (by dilution)",
-        margin=dict(t=60),
+        margin=dict(t=60, b=80),
     )
+    fig.update_xaxes(tickangle=-90)
     return fig
 
 
@@ -428,8 +429,9 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str) -> 
     fig.update_layout(
         height=600,
         title_text="Negative Control MFI Across Plates",
-        margin=dict(t=60),
+        margin=dict(t=60, b=80),
     )
+    fig.update_xaxes(tickangle=-90)
     return fig
 
 

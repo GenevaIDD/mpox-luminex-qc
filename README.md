@@ -26,7 +26,9 @@ Standalone desktop tool for QC of Tetracore 12-plex monkeypox (MPXV) Luminex imm
 - **Negative control tracking** across plates
 - **Kit control bead QC** (NC, ScG, FC, IC)
 - **Historical trend plots** for standard curves, PC MFI, and NC levels across plates
+- **Obs/Exp recovery** for standard curve points with reportable range (LLOQ--ULOQ)
 - **Excel export** of all data across plates
+- **Web-based settings** for QC thresholds, panel definition, and assay configuration (persisted to YAML)
 
 No Python installation or internet connection required &mdash; runs as a self-contained macOS `.app` or Windows `.exe`.
 
@@ -90,11 +92,17 @@ y = d + (a - d) / (1 + (x / c)^b)
 | Hill slope | 0.3 -- 5.0 | Prevents flat or step-function fits |
 | Dynamic range | >= 3-fold | Adequate signal separation |
 
+### Standard Recovery (Obs/Exp)
+
+Each standard point is backcalculated through the 4PL to verify accuracy. Points with recovery outside &plusmn;30% (configurable) are flagged as red triangles on the standard curve plot. The **reportable range** (LLOQ--ULOQ) spans standard points with acceptable recovery.
+
 ### Other QC Checks
 
 - **Bead counts**: Flag well-analyte pairs with < 30 beads
 - **PC replicate CV**: Flag duplicates with CV > 25%
 - **Kit control beads**: NC < 150, ScG > 10000, FC 2000--5000, IC 2000--3000
+
+All thresholds are configurable via the Settings page.
 
 ## Output
 
@@ -167,6 +175,7 @@ uv run python scripts/make_icon.py
 | Visualization | plotly |
 | Web UI | Flask |
 | Reports | Jinja2 |
+| Configuration | PyYAML |
 | Excel I/O | openpyxl |
 | Packaging | PyInstaller |
 
