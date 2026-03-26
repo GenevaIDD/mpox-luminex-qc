@@ -90,5 +90,6 @@ DEFAULTS = {
         "scg_mfi_min": SCG_MFI_MIN,        # 5000
         "fc_mfi_range": list(FC_MFI_RANGE), # [2000, 5000]
         "ic_mfi_range": list(IC_MFI_RANGE), # [1500, 3300]
+        "drop_outlier": True,  # If True, try dropping 1 outlier point to improve std curve fit
     },
 }

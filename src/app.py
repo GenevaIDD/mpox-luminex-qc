@@ -375,6 +375,8 @@ def create_app() -> Flask:
             ]
         except (ValueError, TypeError):
             pass
+        # Outlier detection checkbox
+        qc["drop_outlier"] = request.form.get("drop_outlier") == "true"
 
         save_config(config)
         flash("Settings saved.", "success")

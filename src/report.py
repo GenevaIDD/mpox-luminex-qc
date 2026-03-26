@@ -223,6 +223,19 @@ def _make_standard_curve_plots(
                     hovertemplate="1:%{x} → MFI %{y:.0f} (out of tolerance)<extra></extra>",
                 ), row=row, col=col)
 
+        # Dropped outlier point (X marker, grey)
+        dropped = fit.get("dropped_point")
+        if dropped:
+            fig.add_trace(go.Scatter(
+                x=[dropped["dilution"]], y=[dropped["mfi"]],
+                mode="markers", marker=dict(
+                    color="grey", size=10, symbol="x",
+                    line=dict(width=2, color="black"),
+                ),
+                name="Dropped outlier", showlegend=(i == 0),
+                hovertemplate="DROPPED: 1:%{x} → MFI %{y:.0f}<extra></extra>",
+            ), row=row, col=col)
+
         # Fitted curve
         params = fit.get("params")
         if params is not None:
@@ -531,6 +544,7 @@ def _fits_to_table(fits: dict) -> list[dict]:
         row["qc_warnings"] = f.get("qc_warnings", [])
         row["obs_exp"] = f.get("obs_exp")
         row["reportable_range"] = f.get("reportable_range")
+        row["dropped_point"] = f.get("dropped_point")
         rows.append(row)
     return rows
 

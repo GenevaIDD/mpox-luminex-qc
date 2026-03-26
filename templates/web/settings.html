@@ -138,6 +138,18 @@
 <!-- QC Thresholds -->
 <h2>QC Thresholds</h2>
 <div class="card">
+  <label>
+    <input type="checkbox" name="drop_outlier" value="true"
+           {{ 'checked' if config.qc_thresholds.get('drop_outlier', true) }}>
+    Drop single outlier from standard curve
+  </label>
+  <p style="font-size:0.85em; color:#888; margin-top:4px;">
+    If a standard curve fails QC, try removing each point one at a time (leave-one-out).
+    If dropping a single point produces a passing fit, use that fit and flag the dropped point.
+    Requires at least 6 remaining points.
+  </p>
+</div>
+<div class="card">
   <div class="row">
     <div class="field">
       <label>Min Bead Count</label>

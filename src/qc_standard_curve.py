@@ -60,6 +60,8 @@ def fit_standard_curves(df: pd.DataFrame, config: dict | None = None) -> dict:
     pc = df[df["well_type"] == "pc"].copy()
     results = {}
 
+    drop_outlier = get_qc_thresholds(config).get("drop_outlier", True)
+
     for analyte in antigens:
         adata = pc[pc["analyte"] == analyte].copy()
         if adata.empty:
@@ -74,6 +76,21 @@ def fit_standard_curves(df: pd.DataFrame, config: dict | None = None) -> dict:
         y = means["mfi"].values
 
         params, fit_ok, error, qc_warnings = _fit_one(x, y, x_min=x.min(), x_max=x.max())
+
+        dropped_point = None
+
+        # Try dropping one outlier if enabled and fit has issues
+        if drop_outlier and params is not None and not fit_ok and len(x) >= 6:
+            best = _try_drop_one_outlier(x, y, x_min=x.min(), x_max=x.max())
+            if best is not None:
+                params, fit_ok, error, qc_warnings, drop_idx = best
+                dropped_point = {"dilution": x[drop_idx], "mfi": y[drop_idx], "index": int(drop_idx)}
+                # Update means to exclude the dropped point
+                keep = np.ones(len(x), dtype=bool)
+                keep[drop_idx] = False
+                means = means.iloc[keep].reset_index(drop=True)
+                x = means["dilution"].values
+                y = means["mfi"].values
 
         # Obs/Exp recovery and reportable range
         obs_exp = None
@@ -91,6 +108,7 @@ def fit_standard_curves(df: pd.DataFrame, config: dict | None = None) -> dict:
             "qc_warnings": qc_warnings,
             "obs_exp": obs_exp,
             "reportable_range": reportable_range,
+            "dropped_point": dropped_point,
         }
 
     return results
@@ -158,6 +176,47 @@ def _fit_one(x, y, x_min=None, x_max=None):
     error = "; ".join(qc_warnings) if qc_warnings else None
 
     return tuple(popt), fit_ok, error, qc_warnings
+
+
+def _try_drop_one_outlier(x, y, x_min=None, x_max=None):
+    """Try dropping each point one at a time to see if fit improves.
+
+    Returns (params, fit_ok, error, qc_warnings, drop_idx) for the best
+    single-point removal, or None if no single removal produces a passing fit.
+    If multiple removals pass, pick the one with highest R².
+    """
+    n = len(x)
+    best_result = None
+    best_r2 = -np.inf
+
+    for i in range(n):
+        mask = np.ones(n, dtype=bool)
+        mask[i] = False
+        x_sub = x[mask]
+        y_sub = y[mask]
+
+        params, fit_ok, error, qc_warnings = _fit_one(
+            x_sub, y_sub, x_min=x_min, x_max=x_max
+        )
+
+        if params is not None and fit_ok:
+            # Compute R² for this subset fit
+            y_pred = four_pl(x_sub, *params)
+            ss_res = np.sum((y_sub - y_pred) ** 2)
+            ss_tot = np.sum((y_sub - np.mean(y_sub)) ** 2)
+            r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+            if r2 > best_r2:
+                best_r2 = r2
+                # Add note about which point was dropped
+                drop_note = f"Dropped 1 outlier (1:{x[i]:.0f}, MFI={y[i]:.0f})"
+                if qc_warnings:
+                    qc_warnings = qc_warnings + [drop_note]
+                else:
+                    qc_warnings = [drop_note]
+                best_result = (params, fit_ok, error, qc_warnings, i)
+
+    return best_result
 
 
 def _compute_obs_exp(x_expected, y_observed, params, tolerance=0.30):

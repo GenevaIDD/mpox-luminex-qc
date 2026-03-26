@@ -96,7 +96,7 @@
     <td>{{ 'Yes' if row.fit_ok else 'FAILED' }}</td>
     <td>{{ row.a }}</td><td>{{ row.b }}</td><td>{{ row.c }}</td><td>{{ row.d }}</td>
     <td>{% if row.reportable_range %}1:{{ row.reportable_range.uloq_dilution|int }} – 1:{{ row.reportable_range.lloq_dilution|int }}{% else %}—{% endif %}</td>
-    <td>{% if row.error %}{{ row.error }}{% endif %}</td>
+    <td>{% if row.dropped_point %}Dropped outlier at 1:{{ row.dropped_point.dilution|int }} (MFI={{ row.dropped_point.mfi|int }}){% endif %}{% if row.error %}{% if row.dropped_point %}; {% endif %}{{ row.error }}{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
