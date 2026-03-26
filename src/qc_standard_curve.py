@@ -79,8 +79,8 @@ def fit_standard_curves(df: pd.DataFrame, config: dict | None = None) -> dict:
 
         dropped_point = None
 
-        # Try dropping one outlier if enabled and fit has issues
-        if drop_outlier and params is not None and not fit_ok and len(x) >= 6:
+        # Try dropping one outlier if enabled and fit failed (convergence or QC)
+        if drop_outlier and not fit_ok and len(x) >= 6:
             best = _try_drop_one_outlier(x, y, x_min=x.min(), x_max=x.max())
             if best is not None:
                 params, fit_ok, error, qc_warnings, drop_idx = best
@@ -137,7 +137,7 @@ def _fit_one(x, y, x_min=None, x_max=None):
 
     try:
         popt, _ = curve_fit(
-            four_pl, x, y, p0=p0, bounds=bounds, maxfev=10000
+            four_pl, x, y, p0=p0, bounds=bounds, maxfev=50000
         )
     except Exception as e:
         return None, False, str(e), []
