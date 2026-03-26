@@ -1,6 +1,6 @@
 [project]
 name = "mpox-luminex-qc"
-version = "0.1.0"
+version = "0.6.0"
 description = "QC tool for 12-plex MPXV Luminex immunoassays"
 requires-python = ">=3.11"
 dependencies = [
