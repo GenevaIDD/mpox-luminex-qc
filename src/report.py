@@ -100,6 +100,17 @@ def _make_bead_heatmap(by_well: pd.DataFrame) -> go.Figure:
         "specimen": {"symbol": "square",         "name": "Specimen"},
     }
 
+    # Assign discrete colors: red < 30, yellow 30–50, green > 50
+    def _bead_color(count):
+        if count < 30:
+            return "#e74c3c"   # red
+        elif count <= 50:
+            return "#f39c12"   # yellow/orange
+        else:
+            return "#27ae60"   # green
+
+    by_well["marker_color"] = by_well["median_count"].apply(_bead_color)
+
     fig = go.Figure()
 
     for wtype, style in type_style.items():
@@ -113,12 +124,7 @@ def _make_bead_heatmap(by_well: pd.DataFrame) -> go.Figure:
             marker=dict(
                 symbol=style["symbol"],
                 size=22,
-                color=subset["median_count"],
-                colorscale="YlOrRd_r",
-                cmin=by_well["median_count"].min(),
-                cmax=by_well["median_count"].max(),
-                colorbar=dict(title="Median<br>Bead Count") if wtype == "specimen" else None,
-                showscale=(wtype == "specimen"),
+                color=subset["marker_color"].tolist(),
                 line=dict(width=1, color="grey"),
             ),
             text=subset["median_count"].round(0).astype(int).astype(str),
@@ -130,6 +136,14 @@ def _make_bead_heatmap(by_well: pd.DataFrame) -> go.Figure:
                 "<br>Type: " + style["name"] + "<extra></extra>"
             ),
             customdata=list(zip(subset["well"], subset["median_count"])),
+        ))
+
+    # Add invisible traces for the color legend
+    for label, color in [("< 30 beads", "#e74c3c"), ("30–50 beads", "#f39c12"), ("> 50 beads", "#27ae60")]:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker=dict(size=10, color=color),
+            name=label, showlegend=True,
         ))
 
     fig.update_layout(
@@ -547,13 +561,13 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
         for analyte in antigens:
             arow = wdata[wdata["analyte"] == analyte]
             if not arow.empty:
-                row[f"{analyte}_mfi"] = round(arow["mfi"].iloc[0], 1)
+                row[f"{analyte}_mfi"] = int(round(arow["mfi"].iloc[0]))
                 rau = arow["rau"].iloc[0]
                 extrap = bool(arow["extrapolated"].iloc[0]) if "extrapolated" in arow.columns else False
                 rau_str = None
                 if pd.notna(rau):
-                    rau_str = f"{rau:.6f}*" if extrap else f"{rau:.6f}"
-                row[f"{analyte}_1/RAU"] = rau_str
+                    rau_str = f"{rau:.1f}*" if extrap else f"{rau:.1f}"
+                row[f"{analyte}_AU"] = rau_str
         rows.append(row)
     return rows
 

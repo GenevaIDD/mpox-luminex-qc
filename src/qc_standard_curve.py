@@ -197,8 +197,10 @@ def _compute_reportable_range(x, y, params, tolerance=0.30):
     The reportable range is the dilution range where backcalculated recovery
     is within ±tolerance of the expected value.
 
-    Returns dict with lloq, uloq (as 1/RAU values), lloq_dilution, uloq_dilution.
+    Returns dict with lloq, uloq (as AU values using the same anchor scale),
+    lloq_dilution, uloq_dilution.
     """
+    AU_ANCHOR = 1000.0
     a, b, c, d = params
     obs_exp = _compute_obs_exp(x, y, params, tolerance=tolerance)
 
@@ -211,26 +213,37 @@ def _compute_reportable_range(x, y, params, tolerance=0.30):
     if not valid_dilutions:
         return {"lloq": None, "uloq": None, "lloq_dilution": None, "uloq_dilution": None}
 
-    lloq_dilution = max(valid_dilutions)  # highest dilution = lowest concentration = LLOQ
-    uloq_dilution = min(valid_dilutions)  # lowest dilution = highest concentration = ULOQ
+    # First dilution used in the standard curve (for AU scaling)
+    first_dilution = min(x) if len(x) > 0 else 1.0
+
+    lloq_dilution = max(valid_dilutions)  # highest dilution = lowest AU = LLOQ
+    uloq_dilution = min(valid_dilutions)  # lowest dilution = highest AU = ULOQ
 
     return {
-        "lloq": 1.0 / lloq_dilution if lloq_dilution > 0 else None,
-        "uloq": 1.0 / uloq_dilution if uloq_dilution > 0 else None,
+        "lloq": (first_dilution / lloq_dilution) * AU_ANCHOR if lloq_dilution > 0 else None,
+        "uloq": (first_dilution / uloq_dilution) * AU_ANCHOR if uloq_dilution > 0 else None,
         "lloq_dilution": lloq_dilution,
         "uloq_dilution": uloq_dilution,
     }
 
 
 def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
-    """Apply 4PL inversion to compute 1/RAU for specimen wells.
+    """Apply 4PL inversion to compute AU (Arbitrary Units) for specimen wells.
+
+    The AU scale is anchored so that the first (lowest) standard dilution
+    equals 1000 AU.  For example, if the standard starts at 1:100 then a
+    specimen whose interpolated dilution equiv is 100 gets AU = 1000, one at
+    300 gets AU ≈ 333, and one at 72900 gets AU ≈ 1.37.
+
+    Formula:  AU = (first_dilution / dilution_equiv) * 1000
 
     Adds columns:
-      'rau' — 1/RAU (inverse Relative Antibody Units), defined as
-              1 / (interpolated dilution factor). Higher value = more antibody.
-      'extrapolated' — True if the specimen MFI falls outside the observed
-                       standard curve range (i.e. above max or below min PC MFI).
+      'rau' — Arbitrary Units (AU); higher = more antibody.
+      'extrapolated' — True if specimen MFI is outside the observed standard
+                       curve range.
     """
+    AU_ANCHOR = 1000.0  # the AU value assigned to the first dilution
+
     specimens = df[df["well_type"] == "specimen"].copy()
     specimens["rau"] = np.nan
     specimens["extrapolated"] = False
@@ -238,24 +251,32 @@ def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
     specimens["above_uloq"] = False
 
     for analyte, fit_result in fits.items():
-        # Compute 1/RAU whenever we have valid fit params, even if QC checks failed
+        # Compute AU whenever we have valid fit params, even if QC checks failed
         if fit_result.get("params") is None:
             continue
         a, b, c, d = fit_result["params"]
         mask = specimens["analyte"] == analyte
         mfi_vals = specimens.loc[mask, "mfi"].values
         dilution_equiv = invert_4pl(mfi_vals, a, b, c, d)
-        rau_vals = 1.0 / dilution_equiv
+
+        # Determine the first (lowest) dilution from the standard curve data
+        std_data = fit_result.get("mean_data")
+        if std_data is not None and not std_data.empty:
+            first_dilution = std_data["dilution"].min()
+        else:
+            first_dilution = 1.0  # fallback
+
+        # AU = (first_dilution / dilution_equiv) * 1000
+        rau_vals = (first_dilution / dilution_equiv) * AU_ANCHOR
         specimens.loc[mask, "rau"] = rau_vals
 
         # Flag specimens outside the observed standard curve MFI range
-        std_data = fit_result.get("mean_data")
         if std_data is not None and not std_data.empty:
             mfi_lo = std_data["mfi"].min()
             mfi_hi = std_data["mfi"].max()
             specimens.loc[mask, "extrapolated"] = (mfi_vals < mfi_lo) | (mfi_vals > mfi_hi)
 
-        # Flag specimens outside reportable range
+        # Flag specimens outside reportable range (reportable_range uses same AU scale)
         rr = fit_result.get("reportable_range")
         if rr and rr["lloq"] is not None and rr["uloq"] is not None:
             specimens.loc[mask, "below_lloq"] = rau_vals < rr["lloq"]

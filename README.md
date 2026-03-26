@@ -20,7 +20,7 @@
 Standalone desktop tool for QC of Tetracore 12-plex monkeypox (MPXV) Luminex immunoassays run on a MagPix instrument. Upload xPONENT CSV exports and get interactive HTML reports with:
 
 - **4-Parameter Logistic (4PL) standard curve fitting** with automated quality checks
-- **1/RAU quantification** (inverse Relative Antibody Units) for all specimen wells
+- **AU quantification** (inverse Relative Antibody Units) for all specimen wells
 - **Bead count validation** (minimum 30 beads per well-analyte)
 - **PC replicate variability** monitoring (CV threshold)
 - **Negative control tracking** across plates
@@ -106,15 +106,15 @@ All thresholds are configurable via the Settings page.
 
 ## Output
 
-### 1/RAU (Inverse Relative Antibody Units)
+### AU (Arbitrary Units)
 
-For each specimen, the 4PL standard curve is inverted to find the equivalent dilution factor, then:
+For each specimen, the 4PL standard curve is inverted to find the equivalent dilution factor. The AU scale is anchored so that the first (lowest) standard dilution = 1000 AU:
 
 ```
-1/RAU = 1 / dilution_factor
+AU = (first_dilution / interpolated_dilution) × 1000
 ```
 
-Higher 1/RAU = more antibody. Values are flagged when extrapolated beyond the observed standard curve range.
+Higher AU = more antibody. For example, with a standard starting at 1:100, a specimen matching the 1:100 MFI gets AU = 1000, one matching 1:300 gets AU ≈ 333. Values are flagged when extrapolated beyond the observed standard curve range.
 
 ### Reports & Exports
 

@@ -155,8 +155,8 @@
   {% for row in replicate_qc.replicate_cv.to_dict('records') %}
   <tr class="{{ 'flag' if row.flag else '' }}">
     <td>{{ row.analyte }}</td><td>1:{{ row.dilution | int }}</td>
-    <td>{{ "%.1f" | format(row.rep1) }}</td><td>{{ "%.1f" | format(row.rep2) }}</td>
-    <td>{{ "%.1f" | format(row.mean) }}</td><td>{{ "%.1f%%" | format(row.cv * 100) }}</td>
+    <td>{{ row.rep1 | round(0) | int }}</td><td>{{ row.rep2 | round(0) | int }}</td>
+    <td>{{ row.mean | round(0) | int }}</td><td>{{ "%.1f%%" | format(row.cv * 100) }}</td>
   </tr>
   {% endfor %}
 </table>
@@ -184,7 +184,7 @@
 <table>
   <tr><th>Well</th><th>Analyte</th><th>MFI</th></tr>
   {% for row in nc_levels %}
-  <tr><td>{{ row.well }}</td><td>{{ row.analyte }}</td><td>{{ "%.1f" | format(row.mfi) }}</td></tr>
+  <tr><td>{{ row.well }}</td><td>{{ row.analyte }}</td><td>{{ row.mfi | round(0) | int }}</td></tr>
   {% endfor %}
 </table>
 </details>
@@ -211,9 +211,9 @@
 {% if specimen_results %}
 <div class="section">
 <h2>7. Specimen Results</h2>
-<p>{{ specimen_results | length }} specimens. MFI and 1/RAU (inverse Relative Antibody Units = 1/dilution from 4PL inversion; higher = more antibody) per antigen.</p>
+<p>{{ specimen_results | length }} specimens. MFI and AU (Arbitrary Units; first standard dilution = 1000 AU; higher = more antibody) per antigen.</p>
 {% if extrapolation.n_extrapolated > 0 %}
-<p class="warning">{{ extrapolation.n_extrapolated }} specimen-analyte values fall outside the observed standard curve range (marked with *). These 1/RAU values are extrapolated and may be unreliable.
+<p class="warning">{{ extrapolation.n_extrapolated }} specimen-analyte values fall outside the observed standard curve range (marked with *). These AU values are extrapolated and may be unreliable.
 {% for d in extrapolation.details %} {{ d.analyte }}: {{ d.count }}{% if not loop.last %},{% endif %}{% endfor %}</p>
 {% endif %}
 

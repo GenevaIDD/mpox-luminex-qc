@@ -35,9 +35,9 @@ RECOVERY_TOLERANCE = 0.30  # ±30% Obs/Exp recovery for standard curve points
 
 # Kit control bead thresholds
 NC_BEAD_MFI_MAX = 150       # NC: flag if above 150
-SCG_MFI_MIN = 10000         # ScG: flag if below 10,000
+SCG_MFI_MIN = 5000          # ScG: flag if below 5,000
 FC_MFI_RANGE = (2000, 5000) # FC: flag if outside 2000–5000
-IC_MFI_RANGE = (2000, 3000) # IC: flag if outside 2000–3000
+IC_MFI_RANGE = (1500, 3300) # IC: flag if outside 1500–3300
 
 # Specimen default dilution
 SPECIMEN_DEFAULT_DILUTION = 100
@@ -86,9 +86,9 @@ DEFAULTS = {
         "bead_count_min": BEAD_COUNT_MIN,
         "pc_cv_threshold": PC_CV_THRESHOLD,
         "recovery_tolerance": RECOVERY_TOLERANCE,
-        "nc_bead_mfi_max": NC_BEAD_MFI_MAX,
-        "scg_mfi_min": SCG_MFI_MIN,
-        "fc_mfi_range": list(FC_MFI_RANGE),
-        "ic_mfi_range": list(IC_MFI_RANGE),
+        "nc_bead_mfi_max": NC_BEAD_MFI_MAX,  # 150
+        "scg_mfi_min": SCG_MFI_MIN,        # 5000
+        "fc_mfi_range": list(FC_MFI_RANGE), # [2000, 5000]
+        "ic_mfi_range": list(IC_MFI_RANGE), # [1500, 3300]
     },
 }
