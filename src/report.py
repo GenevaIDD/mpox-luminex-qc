@@ -224,6 +224,27 @@ def _make_standard_curve_plots(
                 hoverinfo="skip",
             ), row=row, col=col)
 
+        # Reportable range box (LLOQ–ULOQ)
+        rr = fit.get("reportable_range")
+        if rr and params is not None and rr.get("lloq_dilution") and rr.get("uloq_dilution"):
+            lloq_dil = rr["lloq_dilution"]
+            uloq_dil = rr["uloq_dilution"]
+            # Compute MFI at the LLOQ and ULOQ dilutions from the 4PL
+            mfi_at_lloq = four_pl_np(np.array([lloq_dil]), *params)[0]
+            mfi_at_uloq = four_pl_np(np.array([uloq_dil]), *params)[0]
+            # Get subplot axis references
+            xref = f"x{i+1}" if i > 0 else "x"
+            yref = f"y{i+1}" if i > 0 else "y"
+            fig.add_shape(
+                type="rect",
+                x0=np.log10(uloq_dil), x1=np.log10(lloq_dil),
+                y0=np.log10(min(mfi_at_lloq, mfi_at_uloq)),
+                y1=np.log10(max(mfi_at_lloq, mfi_at_uloq)),
+                xref=xref, yref=yref,
+                fillcolor="rgba(0, 180, 0, 0.08)",
+                line=dict(color="rgba(0, 150, 0, 0.4)", width=1, dash="dot"),
+            )
+
         # Specimen rug on y-axis
         if not specimens.empty:
             spec_mfi = specimens[specimens["analyte"] == analyte]["mfi"]
@@ -322,7 +343,7 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) ->
         return None
 
     fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
-                        horizontal_spacing=0.06, vertical_spacing=0.12)
+                        horizontal_spacing=0.06, vertical_spacing=0.25)
 
     plate_order = _plate_sort_and_label(history)
     plates = [pid for pid, _ in plate_order]
@@ -357,11 +378,11 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) ->
         fig.update_yaxes(type="log", row=row, col=col)
 
     fig.update_layout(
-        height=600,
+        height=800,
         title_text="PC Standard MFI Across Plates (by dilution)",
-        margin=dict(t=60, b=80),
+        margin=dict(t=60, b=120),
     )
-    fig.update_xaxes(tickangle=-90)
+    fig.update_xaxes(tickangle=-90, tickfont=dict(size=10))
     return fig
 
 
@@ -396,7 +417,7 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str) -> 
         return None
 
     fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
-                        horizontal_spacing=0.06, vertical_spacing=0.12)
+                        horizontal_spacing=0.06, vertical_spacing=0.25)
 
     plate_order = _plate_sort_and_label(history_nc)
     plates = [pid for pid, _ in plate_order]
@@ -427,11 +448,11 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str) -> 
         ), row=row, col=col)
 
     fig.update_layout(
-        height=600,
+        height=800,
         title_text="Negative Control MFI Across Plates",
-        margin=dict(t=60, b=80),
+        margin=dict(t=60, b=120),
     )
-    fig.update_xaxes(tickangle=-90)
+    fig.update_xaxes(tickangle=-90, tickfont=dict(size=10))
     return fig
 
 
