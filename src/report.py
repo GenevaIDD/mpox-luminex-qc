@@ -230,16 +230,18 @@ def _make_standard_curve_plots(
             lloq_dil = rr["lloq_dilution"]
             uloq_dil = rr["uloq_dilution"]
             # Compute MFI at the LLOQ and ULOQ dilutions from the 4PL
-            mfi_at_lloq = four_pl_np(np.array([lloq_dil]), *params)[0]
-            mfi_at_uloq = four_pl_np(np.array([uloq_dil]), *params)[0]
-            # Get subplot axis references
-            xref = f"x{i+1}" if i > 0 else "x"
-            yref = f"y{i+1}" if i > 0 else "y"
+            mfi_at_lloq = float(four_pl_np(np.array([lloq_dil]), *params)[0])
+            mfi_at_uloq = float(four_pl_np(np.array([uloq_dil]), *params)[0])
+            # Draw green shaded box — on log axes, use raw data values (Plotly logs them)
+            # Subplot axis refs: first subplot is "x"/"y", rest are "x2"/"y2", "x3"/"y3", etc.
+            ax_idx = i + 1
+            xref = "x" if ax_idx == 1 else f"x{ax_idx}"
+            yref = "y" if ax_idx == 1 else f"y{ax_idx}"
             fig.add_shape(
                 type="rect",
-                x0=np.log10(uloq_dil), x1=np.log10(lloq_dil),
-                y0=np.log10(min(mfi_at_lloq, mfi_at_uloq)),
-                y1=np.log10(max(mfi_at_lloq, mfi_at_uloq)),
+                x0=uloq_dil, x1=lloq_dil,
+                y0=min(mfi_at_lloq, mfi_at_uloq),
+                y1=max(mfi_at_lloq, mfi_at_uloq),
                 xref=xref, yref=yref,
                 fillcolor="rgba(0, 180, 0, 0.08)",
                 line=dict(color="rgba(0, 150, 0, 0.4)", width=1, dash="dot"),
