@@ -7,6 +7,7 @@ import pandas as pd
 from scipy.optimize import curve_fit
 
 from .config import MPXV_ANTIGENS, RECOVERY_TOLERANCE
+from .settings import get_antigen_names, get_qc_thresholds, load_config
 
 
 def four_pl(x, a, b, c, d):
@@ -37,12 +38,13 @@ def invert_4pl(y, a, b, c, d):
     return result
 
 
-def fit_standard_curves(df: pd.DataFrame) -> dict:
+def fit_standard_curves(df: pd.DataFrame, config: dict | None = None) -> dict:
     """Fit 4PL curves to PC standard data for each antigen.
 
     Args:
         df: DataFrame with columns [well, sample_name, analyte, mfi, well_type, dilution]
             filtered to well_type == 'pc'
+        config: optional config dict (from settings.load_config)
 
     Returns dict keyed by analyte name, each value is a dict:
         params: (a, b, c, d) tuple or None if fit failed
@@ -50,10 +52,15 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
         std_data: DataFrame of the standard curve points used
         error: error message if fit failed
     """
+    if config is None:
+        config = load_config()
+    antigens = get_antigen_names(config)
+    recovery_tolerance = get_qc_thresholds(config).get("recovery_tolerance", RECOVERY_TOLERANCE)
+
     pc = df[df["well_type"] == "pc"].copy()
     results = {}
 
-    for analyte in MPXV_ANTIGENS:
+    for analyte in antigens:
         adata = pc[pc["analyte"] == analyte].copy()
         if adata.empty:
             results[analyte] = {"params": None, "fit_ok": False, "std_data": adata, "error": "No PC data"}
@@ -72,8 +79,8 @@ def fit_standard_curves(df: pd.DataFrame) -> dict:
         obs_exp = None
         reportable_range = None
         if params is not None:
-            obs_exp = _compute_obs_exp(x, y, params, tolerance=RECOVERY_TOLERANCE)
-            reportable_range = _compute_reportable_range(x, y, params, tolerance=RECOVERY_TOLERANCE)
+            obs_exp = _compute_obs_exp(x, y, params, tolerance=recovery_tolerance)
+            reportable_range = _compute_reportable_range(x, y, params, tolerance=recovery_tolerance)
 
         results[analyte] = {
             "params": params,
@@ -184,16 +191,16 @@ def _compute_obs_exp(x_expected, y_observed, params, tolerance=0.30):
     return results
 
 
-def _compute_reportable_range(x, y, params, tolerance=0.20):
+def _compute_reportable_range(x, y, params, tolerance=0.30):
     """Determine the reportable range (LLOQ to ULOQ) based on Obs/Exp recovery.
 
     The reportable range is the dilution range where backcalculated recovery
-    is within ±tolerance (default 20%) of the expected value.
+    is within ±tolerance of the expected value.
 
     Returns dict with lloq, uloq (as 1/RAU values), lloq_dilution, uloq_dilution.
     """
     a, b, c, d = params
-    obs_exp = _compute_obs_exp(x, y, params)
+    obs_exp = _compute_obs_exp(x, y, params, tolerance=tolerance)
 
     # Find dilutions where recovery is within range
     valid_dilutions = [

@@ -4,24 +4,36 @@ import re
 
 import pandas as pd
 
-def classify_wells(df: pd.DataFrame) -> pd.DataFrame:
+from .config import PC_PATTERNS, NC_PATTERNS
+
+
+def classify_wells(df: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
     """Add well_type and dilution columns based on sample_name.
 
     well_type: 'pc', 'nc', or 'specimen'
     dilution: numeric dilution denominator for PC wells, NaN otherwise
     """
+    pc_pats = PC_PATTERNS
+    nc_pats = NC_PATTERNS
+    if config is not None:
+        wc = config.get("well_classification", {})
+        pc_pats = wc.get("pc_patterns", pc_pats)
+        nc_pats = wc.get("nc_patterns", nc_pats)
+
     df = df.copy()
-    df["well_type"] = df["sample_name"].apply(_classify_sample)
+    df["well_type"] = df["sample_name"].apply(lambda n: _classify_sample(n, pc_pats, nc_pats))
     df["dilution"] = df["sample_name"].apply(_extract_dilution)
     return df
 
 
-def _classify_sample(name: str) -> str:
+def _classify_sample(name: str, pc_patterns: list[str], nc_patterns: list[str]) -> str:
     name = name.strip()
-    if re.match(r"^(PC|ITM\s*PC)\s", name, re.IGNORECASE):
-        return "pc"
-    if re.match(r"^(NC|ITM\s*NC)", name, re.IGNORECASE):
-        return "nc"
+    for pat in pc_patterns:
+        if re.match(pat, name, re.IGNORECASE):
+            return "pc"
+    for pat in nc_patterns:
+        if re.match(pat, name, re.IGNORECASE):
+            return "nc"
     return "specimen"
 
 

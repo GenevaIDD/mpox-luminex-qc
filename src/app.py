@@ -101,11 +101,13 @@ def create_app() -> Flask:
             csv_file.save(csv_path)
 
             try:
+                config = load_config()
                 report_path = run_pipeline(
                     csv_path=csv_path,
                     output_dir=results / "reports",
                     layout_path=layout_path,
                     history_dir=results / "history",
+                    config=config,
                 )
                 last_report = report_path
 

@@ -15,6 +15,7 @@ from .qc_history import load_history, append_history, save_history
 from .parse_layout import read_plate_layout
 from .plate_summary import plate_summary
 from .report import generate_report
+from .settings import load_config
 
 
 def run_pipeline(
@@ -22,6 +23,7 @@ def run_pipeline(
     output_dir: str | Path | None = None,
     layout_path: str | Path | None = None,
     history_dir: str | Path | None = None,
+    config: dict | None = None,
 ) -> Path:
     """Run the full QC pipeline on a single plate CSV.
 
@@ -30,6 +32,7 @@ def run_pipeline(
         output_dir: where to write report and CSVs (defaults to csv parent dir)
         layout_path: optional path to plate layout xlsx
         history_dir: where to store history JSON files (defaults to output_dir/history)
+        config: optional config dict (from settings.load_config); loaded if not provided
 
     Returns path to the generated HTML report.
     """
@@ -40,13 +43,17 @@ def run_pipeline(
     if history_dir is None:
         history_dir = output_dir / "history"
 
+    # Load config if not provided
+    if config is None:
+        config = load_config()
+
     # 1. Parse CSV
     parsed = parse_xponent_csv(csv_path)
     metadata = parsed["metadata"]
     data = parsed["data"]
 
-    # 2. Classify wells
-    data = classify_wells(data)
+    # 2. Classify wells (using config patterns)
+    data = classify_wells(data, config=config)
 
     # 3. Optional layout enrichment
     if layout_path:
@@ -55,19 +62,19 @@ def run_pipeline(
             data = data.merge(layout, on="well", how="left", suffixes=("", "_layout"))
 
     # 4. QC: bead counts
-    bead_qc = qc_bead_counts(data)
+    bead_qc = qc_bead_counts(data, config=config)
 
     # 5. QC: 4PL standard curves
-    fits = fit_standard_curves(data)
+    fits = fit_standard_curves(data, config=config)
 
     # 6. QC: PC replicate CV
-    replicate_qc = qc_pc_replicates(data)
+    replicate_qc = qc_pc_replicates(data, config=config)
 
     # 7. QC: NC levels
-    nc_levels = qc_nc_levels(data)
+    nc_levels = qc_nc_levels(data, config=config)
 
     # 8. QC: kit controls
-    kit_ctrl = qc_kit_controls(data)
+    kit_ctrl = qc_kit_controls(data, config=config)
 
     # 9. Compute specimen 1/RAU (inverse relative antibody units)
     specimen_results = compute_concentrations(data, fits)

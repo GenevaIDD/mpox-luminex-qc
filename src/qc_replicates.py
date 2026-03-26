@@ -6,7 +6,7 @@ import pandas as pd
 from .config import MPXV_ANTIGENS, PC_CV_THRESHOLD
 
 
-def qc_pc_replicates(df: pd.DataFrame, cv_threshold: float = PC_CV_THRESHOLD) -> dict:
+def qc_pc_replicates(df: pd.DataFrame, cv_threshold: float | None = None, config: dict | None = None) -> dict:
     """Compute CV for PC standard duplicates.
 
     Returns dict with:
@@ -14,7 +14,17 @@ def qc_pc_replicates(df: pd.DataFrame, cv_threshold: float = PC_CV_THRESHOLD) ->
         replicate_cv: DataFrame with columns [analyte, dilution, rep1, rep2, mean, cv, flag]
         n_flagged: number of pairs exceeding cv_threshold
     """
-    pc = df[(df["well_type"] == "pc") & (df["analyte"].isin(MPXV_ANTIGENS))].copy()
+    if cv_threshold is None:
+        if config is not None:
+            cv_threshold = config.get("qc_thresholds", {}).get("pc_cv_threshold", PC_CV_THRESHOLD)
+        else:
+            cv_threshold = PC_CV_THRESHOLD
+
+    antigens = MPXV_ANTIGENS
+    if config is not None:
+        antigens = [a["name"] for a in config.get("panel", {}).get("antigens", [])] or antigens
+
+    pc = df[(df["well_type"] == "pc") & (df["analyte"].isin(antigens))].copy()
 
     # Count replicates per dilution
     rep_counts = pc.groupby(["analyte", "dilution"])["mfi"].count()
