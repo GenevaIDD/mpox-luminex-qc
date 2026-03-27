@@ -577,8 +577,8 @@ def _kit_control_reference_table() -> list[dict]:
             "criterion": f"MFI ≤ {NC_BEAD_MFI_MAX}",
         },
         {
-            "name": "ScG (Sheep anti-Goat)",
-            "purpose": "Secondary antibody binding control; confirms conjugate is working",
+            "name": "ScG (Human IgG Sample Control)",
+            "purpose": "Verifies sample detection pathway; confirms assay recognizes human IgG",
             "criterion": f"MFI ≥ {SCG_MFI_MIN:,}",
         },
         {
