@@ -196,6 +196,16 @@
 <!-- Section 6: Kit Control Beads -->
 <div class="section">
 <h2>6. Kit Control Beads</h2>
+
+<table style="margin-bottom:12px; font-size:0.9em;">
+  <thead><tr><th>Control</th><th>Purpose</th><th>Expected Range</th></tr></thead>
+  <tbody>
+  {% for ref in kit_control_refs %}
+  <tr><td><strong>{{ ref.name }}</strong></td><td>{{ ref.purpose }}</td><td>{{ ref.criterion }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
 {% if kit_controls.n_flagged > 0 %}
 <p class="warning">{{ kit_controls.n_flagged }} wells flagged by kit controls: {{ kit_controls.flagged_wells | join(', ') }}</p>
 {% else %}

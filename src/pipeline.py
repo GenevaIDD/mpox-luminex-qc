@@ -131,6 +131,11 @@ def run_pipeline(
     if not specimen_results.empty:
         csv_out = output_dir / f"specimens_{metadata['plate_id']}.csv"
         export_df = specimen_results.rename(columns={"rau": "AU"})
+        # Add au_censored: none / left (below LLOQ) / right (above ULOQ)
+        if "below_lloq" in export_df.columns and "above_uloq" in export_df.columns:
+            export_df["au_censored"] = "none"
+            export_df.loc[export_df["below_lloq"], "au_censored"] = "left"
+            export_df.loc[export_df["above_uloq"], "au_censored"] = "right"
         export_df.to_csv(csv_out, index=False, encoding="utf-8")
 
     return report_path

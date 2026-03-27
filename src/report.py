@@ -11,7 +11,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from jinja2 import Environment, FileSystemLoader
 
-from .config import APP_VERSION, MPXV_ANTIGENS, MPXV_KIT_CONTROLS, RECOVERY_TOLERANCE
+from .config import (
+    APP_VERSION, MPXV_ANTIGENS, MPXV_KIT_CONTROLS, RECOVERY_TOLERANCE,
+    NC_BEAD_MFI_MAX, SCG_MFI_MIN, FC_MFI_RANGE, IC_MFI_RANGE,
+)
 
 
 def generate_report(
@@ -71,6 +74,7 @@ def generate_report(
         replicate_qc=replicate_qc,
         nc_levels=nc_levels.to_dict("records") if not nc_levels.empty else [],
         kit_controls=_kit_controls_to_tables(kit_controls),
+        kit_control_refs=_kit_control_reference_table(),
         specimen_results=_specimen_to_table(specimen_results),
         extrapolation=_extrapolation_summary(specimen_results),
         figures=figure_json,
@@ -285,8 +289,14 @@ def _make_standard_curve_plots(
                     hoverinfo="skip",
                 ), row=row, col=col)
 
-        fig.update_xaxes(type="log", row=row, col=col)
+        fig.update_xaxes(type="log", autorange="reversed", row=row, col=col)
         fig.update_yaxes(type="log", row=row, col=col)
+
+    # Axis labels — only show on edge subplots to avoid clutter
+    for col in range(1, 5):
+        fig.update_xaxes(title_text="Dilution", row=2, col=col)
+    for row in range(1, 3):
+        fig.update_yaxes(title_text="MFI", row=row, col=1)
 
     fig.update_layout(height=600, title_text="PC Standard Curves (4PL)", margin=dict(t=60))
     return fig
@@ -502,6 +512,7 @@ def _make_kit_control_plots(kit_controls: dict) -> go.Figure:
             hovertemplate="Well %{x}: %{y:.0f}<extra></extra>",
         ), row=1, col=i+1)
 
+    fig.update_yaxes(title_text="MFI")
     fig.update_layout(height=300, title_text="Kit Control Beads", margin=dict(t=60))
     return fig
 
@@ -519,13 +530,21 @@ def _make_specimen_distribution(specimens: pd.DataFrame) -> go.Figure:
         row = i // 4 + 1
         col = i % 4 + 1
         vals = specimens[specimens["analyte"] == analyte]["mfi"].dropna()
+        # Use log(MFI) for histogram; filter out non-positive values
+        log_vals = np.log(vals[vals > 0])
         fig.add_trace(go.Histogram(
-            x=vals, nbinsx=20, marker_color="steelblue",
+            x=log_vals, nbinsx=20, marker_color="steelblue",
             showlegend=False,
-            hovertemplate="MFI %{x:.0f}: count %{y}<extra></extra>",
+            hovertemplate="ln(MFI) %{x:.2f}: count %{y}<extra></extra>",
         ), row=row, col=col)
 
-    fig.update_layout(height=500, title_text="Specimen MFI Distribution", margin=dict(t=60))
+    # Axis labels on edge subplots
+    for col in range(1, 5):
+        fig.update_xaxes(title_text="ln(MFI)", row=2, col=col)
+    for row in range(1, 3):
+        fig.update_yaxes(title_text="Count", row=row, col=1)
+
+    fig.update_layout(height=500, title_text="Specimen MFI Distribution (ln scale)", margin=dict(t=60))
     return fig
 
 
@@ -547,6 +566,32 @@ def _fits_to_table(fits: dict) -> list[dict]:
         row["dropped_point"] = f.get("dropped_point")
         rows.append(row)
     return rows
+
+
+def _kit_control_reference_table() -> list[dict]:
+    """Return reference info for kit control beads for display in report."""
+    return [
+        {
+            "name": "NC (Negative Control)",
+            "purpose": "Non-specific background; should be near-zero MFI",
+            "criterion": f"MFI ≤ {NC_BEAD_MFI_MAX}",
+        },
+        {
+            "name": "ScG (Sheep anti-Goat)",
+            "purpose": "Secondary antibody binding control; confirms conjugate is working",
+            "criterion": f"MFI ≥ {SCG_MFI_MIN:,}",
+        },
+        {
+            "name": "FC (Fluorescent Conjugate)",
+            "purpose": "Fluorescent reference bead; checks detector calibration",
+            "criterion": f"MFI {FC_MFI_RANGE[0]:,} – {FC_MFI_RANGE[1]:,}",
+        },
+        {
+            "name": "IC (Instrument Control)",
+            "purpose": "Internal bead consistency control; should be stable across plates",
+            "criterion": f"MFI {IC_MFI_RANGE[0]:,} – {IC_MFI_RANGE[1]:,}",
+        },
+    ]
 
 
 def _kit_controls_to_tables(kit_controls: dict) -> dict:
@@ -577,11 +622,24 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
             if not arow.empty:
                 row[f"{analyte}_mfi"] = int(round(arow["mfi"].iloc[0]))
                 rau = arow["rau"].iloc[0]
+                below_lloq = bool(arow["below_lloq"].iloc[0]) if "below_lloq" in arow.columns else False
+                above_uloq = bool(arow["above_uloq"].iloc[0]) if "above_uloq" in arow.columns else False
                 extrap = bool(arow["extrapolated"].iloc[0]) if "extrapolated" in arow.columns else False
+                # au_censored: none / left (below LLOQ) / right (above ULOQ)
+                if below_lloq:
+                    censored = "left"
+                elif above_uloq:
+                    censored = "right"
+                else:
+                    censored = "none"
                 rau_str = None
                 if pd.notna(rau):
-                    rau_str = f"{rau:.1f}*" if extrap else f"{rau:.1f}"
+                    if extrap and not below_lloq and not above_uloq:
+                        rau_str = f"{rau:.1f}*"  # extrapolated but within range
+                    else:
+                        rau_str = f"{rau:.1f}"
                 row[f"{analyte}_AU"] = rau_str
+                row[f"{analyte}_censored"] = censored
         rows.append(row)
     return rows
 
