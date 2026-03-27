@@ -640,6 +640,8 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
                         rau_str = f"{rau:.1f}"
                 row[f"{analyte}_AU"] = rau_str
                 row[f"{analyte}_censored"] = censored
+                net_mfi = arow["net_mfi"].iloc[0] if "net_mfi" in arow.columns else None
+                row[f"{analyte}_net_mfi"] = int(round(net_mfi)) if pd.notna(net_mfi) and net_mfi is not None else None
         rows.append(row)
     return rows
 

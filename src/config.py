@@ -4,7 +4,7 @@ All configurable values have defaults here. User overrides are stored in
 ~/mpox-luminex-qc-results/config.yaml and loaded at runtime via settings.py.
 """
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 
 # --- Default configuration (also exported as DEFAULTS dict below) ---
 

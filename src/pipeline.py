@@ -7,7 +7,7 @@ import pandas as pd
 from .parse_xponent import parse_xponent_csv
 from .classify import classify_wells
 from .qc_beads import qc_bead_counts
-from .qc_standard_curve import fit_standard_curves, compute_concentrations
+from .qc_standard_curve import fit_standard_curves, compute_concentrations, compute_net_mfi
 from .qc_replicates import qc_pc_replicates
 from .qc_nc import qc_nc_levels
 from .qc_kit_controls import qc_kit_controls
@@ -76,8 +76,12 @@ def run_pipeline(
     # 8. QC: kit controls
     kit_ctrl = qc_kit_controls(data, config=config)
 
-    # 9. Compute specimen 1/RAU (inverse relative antibody units)
+    # 9. Compute specimen AU and Net MFI
     specimen_results = compute_concentrations(data, fits)
+    data = compute_net_mfi(data)
+    # Merge net_mfi back into specimen_results
+    net_mfi_map = data[data["well_type"] == "specimen"][["well", "analyte", "net_mfi"]]
+    specimen_results = specimen_results.merge(net_mfi_map, on=["well", "analyte"], how="left")
 
     # 10. Plate summary
     summary = plate_summary(data)

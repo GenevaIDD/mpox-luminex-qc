@@ -342,3 +342,31 @@ def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
             specimens.loc[mask, "above_uloq"] = rau_vals > rr["uloq"]
 
     return specimens
+
+
+def compute_net_mfi(df: pd.DataFrame) -> pd.DataFrame:
+    """Add net_mfi column: analyte MFI minus same-well NC bead MFI, floored at 0.
+
+    The NC bead in each well captures non-specific binding. Subtracting it
+    gives a background-corrected signal. Only applied to specimen wells.
+    """
+    # Mean NC bead MFI per well (NC bead analyte name is "NC")
+    nc_mfi_by_well = (
+        df[df["analyte"] == "NC"]
+        .groupby("well")["mfi"]
+        .mean()
+        .rename("nc_mfi_well")
+    )
+
+    result = df.copy()
+    result["net_mfi"] = np.nan
+
+    spec_mask = result["well_type"] == "specimen"
+    if spec_mask.any():
+        result = result.join(nc_mfi_by_well, on="well")
+        nc_col = result["nc_mfi_well"].fillna(0.0)
+        net = result.loc[spec_mask, "mfi"] - nc_col[spec_mask]
+        result.loc[spec_mask, "net_mfi"] = net.clip(lower=0.0)
+        result = result.drop(columns=["nc_mfi_well"])
+
+    return result
