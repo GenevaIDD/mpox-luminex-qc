@@ -79,9 +79,9 @@ def run_pipeline(
     # 9. Compute specimen AU and Net MFI
     specimen_results = compute_concentrations(data, fits)
     data = compute_net_mfi(data)
-    # Merge net_mfi back into specimen_results
-    net_mfi_map = data[data["well_type"] == "specimen"][["well", "analyte", "net_mfi"]]
-    specimen_results = specimen_results.merge(net_mfi_map, on=["well", "analyte"], how="left")
+    # Add net_mfi to specimen_results by index alignment
+    if "net_mfi" in data.columns:
+        specimen_results["net_mfi"] = data.loc[specimen_results.index, "net_mfi"]
 
     # 10. Plate summary
     summary = plate_summary(data)
