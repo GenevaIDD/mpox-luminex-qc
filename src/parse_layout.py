@@ -21,6 +21,8 @@ def read_plate_layout(path: str | Path) -> pd.DataFrame | None:
         return None
 
     # First row is the header
+    if df.empty:
+        return None
     headers = df.iloc[0].tolist()
     df = df.iloc[1:].reset_index(drop=True)
     df.columns = [str(h).strip() for h in headers]
@@ -30,7 +32,7 @@ def read_plate_layout(path: str | Path) -> pd.DataFrame | None:
     for col in df.columns:
         lower = col.lower()
         if "well_number" in lower:
-            col_map[col] = "well_number"
+            col_map[col] = "well"
         elif lower == "well":
             col_map[col] = "well"
         elif "sample" in lower:
