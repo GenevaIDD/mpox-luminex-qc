@@ -22,7 +22,12 @@ def classify_wells(df: pd.DataFrame, config: dict | None = None) -> pd.DataFrame
 
     df = df.copy()
     df["well_type"] = df["sample_name"].apply(lambda n: _classify_sample(n, pc_pats, nc_pats))
+    # PC dilutions are scraped from sample names; specimen dilution comes from config
     df["dilution"] = df["sample_name"].apply(_extract_dilution)
+    if config is not None:
+        spec_dil = config.get("specimens", {}).get("default_dilution")
+        if spec_dil is not None:
+            df.loc[df["well_type"] == "specimen", "dilution"] = float(spec_dil)
     return df
 
 
