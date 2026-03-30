@@ -24,6 +24,7 @@ def run_pipeline(
     layout_path: str | Path | None = None,
     history_dir: str | Path | None = None,
     config: dict | None = None,
+    plate_order: list | None = None,
 ) -> Path:
     """Run the full QC pipeline on a single plate CSV.
 
@@ -138,6 +139,7 @@ def run_pipeline(
         history_std=history_std,
         history_nc=history_nc,
         output_path=report_path,
+        plate_order=plate_order,
     )
 
     # 13. Export specimen results CSV

@@ -63,7 +63,16 @@
     border: 2px solid #95c4e8; border-top-color: #3498db; border-radius: 50%;
     animation: spin 0.8s linear infinite; vertical-align: middle;
   }
+  .drag-handle {
+    cursor: grab; color: #aaa; font-size: 16px; padding: 0 4px;
+    user-select: none;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .sortable-ghost { opacity: 0.4; background: #d0e8ff !important; }
+  .btn-warning { background: #f39c12; color: #fff; }
+  .btn-warning:hover { background: #d68910; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 </head>
 <body>
 
@@ -98,19 +107,33 @@
 </div>
 
 {% if reports %}
-<div style="display: flex; justify-content: space-between; align-items: center;">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
   <h2 style="margin-bottom: 10px;">Past Reports</h2>
-  <a href="/export/all" class="btn btn-primary" style="font-size: 13px; padding: 8px 16px;">
-    Export All Processed Data (.xlsx)
-  </a>
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    <a href="/export/all" class="btn btn-primary" style="font-size: 13px; padding: 8px 16px;">
+      Export All Processed Data (.xlsx)
+    </a>
+    <button id="save-order-btn" class="btn btn-secondary" style="font-size: 13px; padding: 8px 16px;"
+            title="Save the current drag-and-drop order">
+      &#8597; Save Order
+    </button>
+    <form method="POST" action="/regenerate-all" style="margin:0;"
+          onsubmit="return confirm('Regenerate all reports in the current order? This may take a while.')">
+      <button type="submit" class="btn btn-warning" style="font-size: 13px; padding: 8px 16px;"
+              id="regen-btn">
+        &#8635; Regenerate All
+      </button>
+    </form>
+  </div>
 </div>
 <p style="font-size: 12px; color: #888; margin-top: 0;">
   {{ reports | length }} plate{{ 's' if reports | length != 1 }} processed.
-  "Export All Processed Data" downloads an Excel workbook with all specimens, standard curve parameters, and NC levels across all plates.
+  Drag rows to reorder, then click <strong>Save Order</strong>. Click <strong>Regenerate All</strong> to rebuild all reports and history plots in the saved order.
 </p>
 <table>
   <thead>
     <tr>
+      <th style="width:28px;"></th>
       <th>Plate ID</th>
       <th>Generated</th>
       <th>Report</th>
@@ -118,9 +141,10 @@
       <th></th>
     </tr>
   </thead>
-  <tbody>
+  <tbody id="plate-list">
     {% for r in reports %}
-    <tr>
+    <tr data-plate-id="{{ r.plate_id }}">
+      <td class="drag-handle" title="Drag to reorder">&#9776;</td>
       <td>{{ r.plate_id }}</td>
       <td>{{ r.date }}</td>
       <td>
@@ -188,6 +212,53 @@ document.getElementById('upload-form').addEventListener('submit', function() {
   document.getElementById('submit-btn').textContent = 'Processing...';
   document.getElementById('spinner').classList.add('active');
 });
+
+// Drag-and-drop reordering
+const plateListEl = document.getElementById('plate-list');
+if (plateListEl) {
+  Sortable.create(plateListEl, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'sortable-ghost',
+  });
+}
+
+// Save Order button
+const saveOrderBtn = document.getElementById('save-order-btn');
+if (saveOrderBtn) {
+  saveOrderBtn.addEventListener('click', async () => {
+    const rows = document.querySelectorAll('#plate-list tr[data-plate-id]');
+    const ids = Array.from(rows).map(r => r.dataset.plateId);
+    try {
+      const resp = await fetch('/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: ids }),
+      });
+      if (resp.ok) {
+        saveOrderBtn.textContent = '✓ Order saved';
+        saveOrderBtn.style.background = '#27ae60';
+        setTimeout(() => {
+          saveOrderBtn.textContent = '↕ Save Order';
+          saveOrderBtn.style.background = '';
+        }, 2000);
+      } else {
+        alert('Failed to save order.');
+      }
+    } catch (e) {
+      alert('Network error: ' + e);
+    }
+  });
+}
+
+// Regenerate All — show spinner on button
+const regenBtn = document.getElementById('regen-btn');
+if (regenBtn) {
+  regenBtn.closest('form').addEventListener('submit', function() {
+    regenBtn.disabled = true;
+    regenBtn.textContent = '⏳ Regenerating...';
+  });
+}
 </script>
 
 </body>

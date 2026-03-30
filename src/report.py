@@ -30,6 +30,7 @@ def generate_report(
     history_std: pd.DataFrame | None = None,
     history_nc: pd.DataFrame | None = None,
     output_path: str | Path = "report.html",
+    plate_order: list | None = None,
 ) -> Path:
     """Generate the full QC report as a self-contained HTML file."""
     output_path = Path(output_path)
@@ -63,10 +64,11 @@ def generate_report(
         pool_history = history_std.get(pool_name) if isinstance(history_std, dict) else history_std
         suffix = f" — {pool_name}"  # always show pool name in title
         key = f"pc_mfi_history_{slug}" if multi_pool else "pc_mfi_history"
-        figures[key] = _make_pc_mfi_history(pool_history, current_plate_id, title_suffix=suffix)
+        figures[key] = _make_pc_mfi_history(pool_history, current_plate_id, title_suffix=suffix,
+                                             plate_order=plate_order)
 
     figures["nc_levels"] = _make_nc_plot(nc_levels, history_nc)
-    figures["nc_history"] = _make_nc_history(history_nc, current_plate_id)
+    figures["nc_history"] = _make_nc_history(history_nc, current_plate_id, plate_order=plate_order)
     figures["kit_controls"] = _make_kit_control_plots(kit_controls)
     if not specimen_results.empty:
         figures["specimen_mfi"] = _make_specimen_distribution(specimen_results)
@@ -363,25 +365,42 @@ def _make_replicate_plot(cv_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _plate_sort_and_label(history: pd.DataFrame) -> list[tuple[str, str]]:
-    """Sort plates by run_date and create short labels (date + PLATEXX).
+def _plate_sort_and_label(history: pd.DataFrame,
+                          plate_order: list | None = None) -> list[tuple[str, str]]:
+    """Sort plates and create short labels (date + PLATEXX).
 
-    Returns list of (plate_id, label) tuples sorted by date.
+    If plate_order (list of plate_ids) is provided, plates are sorted by their
+    position in that list. Plates not in the list go at the end, sorted by date.
+    Otherwise, falls back to run_date sort.
+
+    Returns list of (plate_id, label) tuples.
     """
     import re
     from datetime import datetime
 
     plate_info = history.groupby("plate_id").first().reset_index()
+
+    def _parse_date(d):
+        for fmt in ("%m/%d/%Y %I:%M %p", "%m/%d/%Y %I:%M:%S %p", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(str(d).strip(), fmt)
+            except (ValueError, TypeError):
+                continue
+        return datetime.min
+
     if "run_date" in plate_info.columns:
-        # Parse run_date and sort
-        def _parse_date(d):
-            for fmt in ("%m/%d/%Y %I:%M %p", "%m/%d/%Y %I:%M:%S %p", "%Y-%m-%d"):
-                try:
-                    return datetime.strptime(str(d).strip(), fmt)
-                except (ValueError, TypeError):
-                    continue
-            return datetime.min
         plate_info["_sort_date"] = plate_info["run_date"].apply(_parse_date)
+    else:
+        plate_info["_sort_date"] = datetime.min
+
+    if plate_order:
+        order_map = {pid: i for i, pid in enumerate(plate_order)}
+        max_idx = len(plate_order)
+        plate_info["_order"] = plate_info["plate_id"].map(
+            lambda pid: order_map.get(pid, max_idx)
+        )
+        plate_info = plate_info.sort_values(["_order", "_sort_date"])
+    else:
         plate_info = plate_info.sort_values("_sort_date")
 
     result = []
@@ -392,11 +411,10 @@ def _plate_sort_and_label(history: pd.DataFrame) -> list[tuple[str, str]]:
         plate_part = m.group(1) if m else pid[-8:]
         # Extract short date
         date_part = ""
-        if "run_date" in row and row["run_date"]:
+        sd = row.get("_sort_date")
+        if sd and sd != datetime.min:
             try:
-                dt = row["_sort_date"] if "_sort_date" in row else None
-                if dt and dt != datetime.min:
-                    date_part = dt.strftime("%m/%d")
+                date_part = sd.strftime("%m/%d")
             except Exception:
                 pass
         label = f"{date_part} {plate_part}".strip() if date_part else plate_part
@@ -405,7 +423,8 @@ def _plate_sort_and_label(history: pd.DataFrame) -> list[tuple[str, str]]:
 
 
 def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
-                         title_suffix: str = "") -> go.Figure | None:
+                         title_suffix: str = "",
+                         plate_order: list | None = None) -> go.Figure | None:
     """Panel plot: PC MFI by plate for each analyte (2x4 grid)."""
     if history is None or history.empty:
         return None
@@ -417,9 +436,9 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
     fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
                         horizontal_spacing=0.06, vertical_spacing=0.25)
 
-    plate_order = _plate_sort_and_label(history)
-    plates = [pid for pid, _ in plate_order]
-    plate_labels = [label for _, label in plate_order]
+    sorted_plates = _plate_sort_and_label(history, plate_order=plate_order)
+    plates = [pid for pid, _ in sorted_plates]
+    plate_labels = [label for _, label in sorted_plates]
 
     for i, analyte in enumerate(antigens[:8]):
         row = i // 4 + 1
@@ -479,7 +498,8 @@ def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.F
     return fig
 
 
-def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str) -> go.Figure | None:
+def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
+                     plate_order: list | None = None) -> go.Figure | None:
     """Panel plot: NC MFI by plate for each analyte (2x4 grid)."""
     if history_nc is None or history_nc.empty:
         return None
@@ -491,9 +511,9 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str) -> 
     fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
                         horizontal_spacing=0.06, vertical_spacing=0.25)
 
-    plate_order = _plate_sort_and_label(history_nc)
-    plates = [pid for pid, _ in plate_order]
-    plate_labels = [label for _, label in plate_order]
+    sorted_plates = _plate_sort_and_label(history_nc, plate_order=plate_order)
+    plates = [pid for pid, _ in sorted_plates]
+    plate_labels = [label for _, label in sorted_plates]
 
     for i, analyte in enumerate(antigens[:8]):
         row = i // 4 + 1

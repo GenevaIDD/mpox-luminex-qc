@@ -1,5 +1,5 @@
 # MPXV Luminex QC Tool — Specification
-# Version 0.2 (2026-03-24)
+# Version 0.8.0 (2026-03-30)
 
 ## Overview
 
@@ -41,6 +41,7 @@ Variations handled:
 - Single PC replicate (no duplicate in column 2)
 - Missing NC wells
 - Variable number of specimen wells (up to 80 per plate)
+- **Two standard curve pools on one plate** (e.g., ITM PC and ITM PC2) — each pool is fit independently and produces separate AU columns in specimen output
 
 ## Input Files
 
@@ -82,7 +83,8 @@ Model: `y = d + (a - d) / (1 + (x / c)^b)`
 | c         | Inflection point (IC50)                 |
 | d         | Maximum asymptote (low dilution → high MFI) |
 
-- Fit independently for each of the 8 antigens
+- Fit independently for each antigen, per standard curve pool
+- Supports one or two standard curve pools per plate (e.g., ITM PC / ITM PC2); when both are present each is fit independently
 - Uses mean of PC duplicates at each dilution point
 - Fitted via `scipy.optimize.curve_fit` with bounds
 - Reports fit success/failure, all 4 parameters, and quality issues per analyte
@@ -173,6 +175,8 @@ JSON files accumulate data across plates for trend monitoring:
 
 History is deduplicated on plate_id — reprocessing a plate overwrites its previous history entry. Historical standard curves appear as grey lines behind the current plate's curves in the report.
 
+When multiple standard curve pools are present, history files are scoped per pool (e.g., `std_curve_history_ITM_PC.json`, `std_curve_history_ITM_PC2.json`).
+
 ## Application Architecture
 
 ### Web Interface (Flask)
@@ -182,7 +186,9 @@ History is deduplicated on plate_id — reprocessing a plate overwrites its prev
 - Upload form: one or more xPONENT CSVs + optional layout XLSX
 - Past reports table with view/download links and per-plate delete button
 - "Export All Data" button for combined Excel workbook
-- Delete plate: removes report, specimen CSV, and history entries
+- Delete plate: removes report, specimen CSV, history entries, and stored upload file
+- **Drag-and-drop plate reordering**: drag rows in the past reports table, then click "Save Order"
+- **Regenerate All**: re-runs the full pipeline for all plates in the saved order, rebuilding history trend plots in that order
 - "Quit Application" button for graceful shutdown
 
 ### Data Storage
@@ -191,11 +197,14 @@ All persistent data stored in `~/mpox-luminex-qc-results/`:
 
 ```
 ~/mpox-luminex-qc-results/
-  reports/        # Generated HTML QC reports
-  specimens/      # Per-plate specimen CSV files
-  history/        # JSON history files (accumulate across plates)
-  uploads/        # Temporary (cleaned after each pipeline run)
+  reports/            # Generated HTML QC reports
+  specimens/          # Per-plate specimen CSV files
+  history/            # JSON history files (accumulate across plates)
+  uploads/            # Uploaded CSV/layout files (kept for regeneration)
+  plate_registry.json # Plate order and upload file manifest
 ```
+
+`plate_registry.json` records each plate's CSV filename and sort order. Uploaded files are retained so that "Regenerate All" can re-run the pipeline without requiring re-upload.
 
 ### Distribution
 

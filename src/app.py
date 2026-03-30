@@ -15,6 +15,7 @@ import pandas as pd
 from flask import (
     Flask,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -95,6 +96,7 @@ def create_app() -> Flask:
             layout_file.save(layout_path)
 
         last_report = None
+        layout_name = layout_path.name if layout_path else None
         for csv_file in csv_files:
             csv_name = secure_filename(csv_file.filename)
             csv_path = results / "uploads" / csv_name
@@ -117,20 +119,14 @@ def create_app() -> Flask:
                 if spec_csv.exists():
                     spec_csv.rename(results / "specimens" / spec_csv.name)
 
+                # Register plate (keep CSV/layout for regeneration)
+                _register_plate(results, plate_id, csv_name, layout_name)
+
                 flash(f"Report generated: {report_path.name}", "success")
 
             except Exception as exc:
                 traceback.print_exc()
                 flash(f"Error processing {csv_name}: {exc}", "error")
-
-            finally:
-                # Clean up uploaded CSV
-                if csv_path.exists():
-                    csv_path.unlink()
-
-        # Clean up layout file
-        if layout_path and layout_path.exists():
-            layout_path.unlink()
 
         # Redirect to the last generated report, or back to index
         if last_report and last_report.exists():
@@ -225,7 +221,7 @@ def create_app() -> Flask:
 
     @app.route("/delete/<plate_id>", methods=["POST"])
     def delete_plate(plate_id):
-        """Delete a plate's report, specimen CSV, and history entries."""
+        """Delete a plate's report, specimen CSV, history entries, and uploaded files."""
         plate_id = secure_filename(plate_id)
 
         # Delete report HTML
@@ -249,7 +245,87 @@ def create_app() -> Flask:
             except Exception:
                 pass
 
+        # Delete uploaded CSV/layout and remove from registry
+        registry = _load_registry(results)
+        entry = next((r for r in registry if r["plate_id"] == plate_id), None)
+        if entry:
+            for fname in (entry.get("csv_filename"), entry.get("layout_filename")):
+                if fname:
+                    f = results / "uploads" / fname
+                    if f.exists():
+                        f.unlink()
+        registry = [r for r in registry if r["plate_id"] != plate_id]
+        # Renumber sort_order to keep gapless
+        for i, r in enumerate(sorted(registry, key=lambda x: x.get("sort_order", 0))):
+            r["sort_order"] = i
+        _save_registry(results, registry)
+
         flash(f"Deleted plate {plate_id}.", "success")
+        return redirect(url_for("index"))
+
+    @app.route("/reorder", methods=["POST"])
+    def reorder_plates():
+        """Update plate order from JSON body {"order": ["plate_id_1", ...]}."""
+        body = request.get_json(force=True, silent=True) or {}
+        order = body.get("order", [])
+        registry = _load_registry(results)
+        id_to_entry = {r["plate_id"]: r for r in registry}
+        for i, pid in enumerate(order):
+            if pid in id_to_entry:
+                id_to_entry[pid]["sort_order"] = i
+        # Plates not in the submitted order keep their existing sort_order (pushed to end)
+        max_order = len(order)
+        for r in registry:
+            if r["plate_id"] not in order:
+                r["sort_order"] = max_order
+                max_order += 1
+        _save_registry(results, registry)
+        return jsonify({"ok": True})
+
+    @app.route("/regenerate-all", methods=["POST"])
+    def regenerate_all():
+        """Re-run pipeline for all registered plates in registry order."""
+        registry = _load_registry(results)
+        if not registry:
+            flash("No plates in registry to regenerate.", "error")
+            return redirect(url_for("index"))
+
+        registry_sorted = sorted(registry, key=lambda r: r.get("sort_order", 0))
+        plate_order = [r["plate_id"] for r in registry_sorted]
+
+        config = load_config()
+        ok = 0
+        errors = 0
+        for entry in registry_sorted:
+            csv_path = results / "uploads" / entry["csv_filename"]
+            if not csv_path.exists():
+                flash(f"Upload file missing for {entry['plate_id']}: {entry['csv_filename']}", "error")
+                errors += 1
+                continue
+            layout_path = None
+            if entry.get("layout_filename"):
+                lp = results / "uploads" / entry["layout_filename"]
+                layout_path = lp if lp.exists() else None
+            try:
+                report_path = run_pipeline(
+                    csv_path=csv_path,
+                    output_dir=results / "reports",
+                    layout_path=layout_path,
+                    history_dir=results / "history",
+                    config=config,
+                    plate_order=plate_order,
+                )
+                plate_id = report_path.stem.replace("QC_", "")
+                spec_csv = results / "reports" / f"specimens_{plate_id}.csv"
+                if spec_csv.exists():
+                    spec_csv.rename(results / "specimens" / spec_csv.name)
+                ok += 1
+            except Exception as exc:
+                traceback.print_exc()
+                flash(f"Error regenerating {entry['plate_id']}: {exc}", "error")
+                errors += 1
+
+        flash(f"Regenerated {ok} report(s)." + (f" {errors} error(s)." if errors else ""), "success" if not errors else "error")
         return redirect(url_for("index"))
 
     @app.route("/specification")
@@ -448,23 +524,66 @@ def create_app() -> Flask:
 # ---------------------------------------------------------------------------
 
 def _list_reports(results_dir: Path) -> list[dict]:
-    """List past reports sorted by modification time (most recent first)."""
+    """List past reports sorted by registry order (or mtime for unregistered plates)."""
     reports_dir = results_dir / "reports"
     specimens_dir = results_dir / "specimens"
-    reports = []
+    registry = _load_registry(results_dir)
+    order_map = {r["plate_id"]: r.get("sort_order", 9999) for r in registry}
 
-    for html_file in sorted(reports_dir.glob("QC_*.html"), key=os.path.getmtime, reverse=True):
+    reports = []
+    for html_file in reports_dir.glob("QC_*.html"):
         plate_id = html_file.stem.replace("QC_", "")
         mtime = datetime.fromtimestamp(html_file.stat().st_mtime)
-
-        # Check for matching specimen CSV
         spec_csv = specimens_dir / f"specimens_{plate_id}.csv"
-
         reports.append({
             "plate_id": plate_id,
             "filename": html_file.name,
             "date": mtime.strftime("%Y-%m-%d %H:%M"),
             "specimen_csv": spec_csv.name if spec_csv.exists() else None,
+            "_sort_key": (order_map.get(plate_id, 9999), -mtime.timestamp()),
         })
 
+    reports.sort(key=lambda r: r["_sort_key"])
+    for r in reports:
+        del r["_sort_key"]
     return reports
+
+
+def _get_registry_path(results_dir: Path) -> Path:
+    return results_dir / "plate_registry.json"
+
+
+def _load_registry(results_dir: Path) -> list[dict]:
+    """Load plate_registry.json; return [] if missing or corrupt."""
+    path = _get_registry_path(results_dir)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_registry(results_dir: Path, registry: list[dict]) -> None:
+    """Save plate_registry.json."""
+    path = _get_registry_path(results_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(registry, indent=2), encoding="utf-8")
+
+
+def _register_plate(results_dir: Path, plate_id: str, csv_filename: str, layout_filename: str | None) -> None:
+    """Add or update a plate entry in plate_registry.json."""
+    registry = _load_registry(results_dir)
+    existing = next((r for r in registry if r["plate_id"] == plate_id), None)
+    if existing:
+        existing["csv_filename"] = csv_filename
+        existing["layout_filename"] = layout_filename
+    else:
+        registry.append({
+            "plate_id": plate_id,
+            "csv_filename": csv_filename,
+            "layout_filename": layout_filename,
+            "sort_order": len(registry),
+        })
+    _save_registry(results_dir, registry)
