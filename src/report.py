@@ -638,11 +638,22 @@ def _kit_control_reference_table() -> list[dict]:
 def _kit_controls_to_tables(kit_controls: dict) -> dict:
     """Convert kit control DataFrames to lists of dicts for the template."""
     result = {}
+    # Build well → sample_name lookup from any of the control DataFrames
+    well_to_sample = {}
     for key in ["nc_bead", "scg", "fc", "ic"]:
         df = kit_controls[key]
         result[key] = df.to_dict("records")
+        if "sample_name" in df.columns:
+            well_to_sample.update(dict(zip(df["well"], df["sample_name"])))
+
     result["n_flagged"] = len(kit_controls["flagged_wells"])
-    result["flagged_wells"] = sorted(kit_controls["flagged_wells"])
+    # flagged_wells_labeled: list of "A1 (Sample ID)" strings
+    flagged = sorted(kit_controls["flagged_wells"])
+    result["flagged_wells"] = flagged
+    result["flagged_wells_labeled"] = [
+        f"{w} ({well_to_sample[w]})" if w in well_to_sample else w
+        for w in flagged
+    ]
     return result
 
 

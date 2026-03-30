@@ -226,7 +226,7 @@
 </table>
 
 {% if kit_controls.n_flagged > 0 %}
-<p class="warning">{{ kit_controls.n_flagged }} wells flagged by kit controls: {{ kit_controls.flagged_wells | join(', ') }}</p>
+<p class="warning">{{ kit_controls.n_flagged }} wells flagged by kit controls: {{ kit_controls.flagged_wells_labeled | join(', ') }}</p>
 {% else %}
 <p>All kit control beads within expected ranges.</p>
 {% endif %}
@@ -246,8 +246,9 @@
 {% for d in extrapolation.details %} {{ d.analyte }}: {{ d.count }}{% if not loop.last %},{% endif %}{% endfor %}</p>
 {% endif %}
 
+<button onclick="downloadSpecimenCSV()" style="margin-bottom:8px; padding:6px 14px; background:#3498db; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:0.9em;">&#8681; Download CSV</button>
 <div class="specimen-table">
-<table>
+<table id="specimen-table">
   <tr>
     <th>Well</th><th>Sample</th>
     {% for col in specimen_results[0].keys() if col not in ['well', 'sample_name'] %}
@@ -279,6 +280,24 @@ for (const [id, figData] of Object.entries(figures)) {
   if (el && figData) {
     Plotly.newPlot(el, figData.data, figData.layout, {responsive: true});
   }
+}
+
+function downloadSpecimenCSV() {
+  const table = document.getElementById('specimen-table');
+  const rows = Array.from(table.querySelectorAll('tr'));
+  const csv = rows.map(row =>
+    Array.from(row.querySelectorAll('th, td'))
+      .map(cell => {
+        const val = cell.textContent.trim();
+        return val.includes(',') || val.includes('"') ? '"' + val.replace(/"/g, '""') + '"' : val;
+      })
+      .join(',')
+  ).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'specimen_results_{{ metadata.plate_id | default("export") }}.csv';
+  a.click();
 }
 </script>
 
