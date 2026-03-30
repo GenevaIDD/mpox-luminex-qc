@@ -49,7 +49,7 @@ def generate_report(
     for pool_name, slug in zip(pools, pool_slugs):
         pool_fits = fits[pool_name]
         pool_history = history_std.get(pool_name) if isinstance(history_std, dict) else history_std
-        suffix = f" — {pool_name}" if multi_pool else ""
+        suffix = f" — {pool_name}"  # always show pool name in title
         key = f"standard_curves_{slug}" if multi_pool else "standard_curves"
         figures[key] = _make_standard_curve_plots(
             pool_fits, specimen_results, pool_history, title_suffix=suffix
@@ -61,7 +61,7 @@ def generate_report(
     # PC MFI history — one per pool
     for pool_name, slug in zip(pools, pool_slugs):
         pool_history = history_std.get(pool_name) if isinstance(history_std, dict) else history_std
-        suffix = f" — {pool_name}" if multi_pool else ""
+        suffix = f" — {pool_name}"  # always show pool name in title
         key = f"pc_mfi_history_{slug}" if multi_pool else "pc_mfi_history"
         figures[key] = _make_pc_mfi_history(pool_history, current_plate_id, title_suffix=suffix)
 
