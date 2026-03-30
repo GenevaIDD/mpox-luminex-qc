@@ -4,7 +4,7 @@ All configurable values have defaults here. User overrides are stored in
 ~/mpox-luminex-qc-results/config.yaml and loaded at runtime via settings.py.
 """
 
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.7.0"
 
 # --- Default configuration (also exported as DEFAULTS dict below) ---
 
@@ -43,7 +43,7 @@ IC_MFI_RANGE = (1500, 3300) # IC: flag if outside 1500–3300
 SPECIMEN_DEFAULT_DILUTION = 100
 
 # Well classification patterns
-PC_PATTERNS = [r"^PC\s", r"^ITM\s*PC\s"]
+PC_PATTERNS = [r"^PC\d?\s", r"^ITM\s*PC\d?\s"]
 NC_PATTERNS = [r"^NC", r"^ITM\s*NC"]
 
 # --- Structured defaults dict for settings.py ---

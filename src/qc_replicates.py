@@ -26,22 +26,32 @@ def qc_pc_replicates(df: pd.DataFrame, cv_threshold: float | None = None, config
 
     pc = df[(df["well_type"] == "pc") & (df["analyte"].isin(antigens))].copy()
 
-    # Count replicates per dilution
-    rep_counts = pc.groupby(["analyte", "dilution"])["mfi"].count()
+    # Group by pool if available
+    has_pool = "pc_pool" in pc.columns
+    group_cols = (["pc_pool", "analyte", "dilution"] if has_pool
+                  else ["analyte", "dilution"])
+
+    # Count replicates per group
+    rep_counts = pc.groupby(group_cols)["mfi"].count()
     has_replicates = (rep_counts > 1).any()
 
     if not has_replicates:
         return {"has_replicates": False, "replicate_cv": pd.DataFrame(), "n_flagged": 0}
 
     rows = []
-    for (analyte, dilution), group in pc.groupby(["analyte", "dilution"]):
+    for keys, group in pc.groupby(group_cols):
+        if has_pool:
+            pool, analyte, dilution = keys
+        else:
+            analyte, dilution = keys
+            pool = None
         values = group["mfi"].values
         if len(values) < 2:
             continue
         rep1, rep2 = values[0], values[1]
         mean_val = np.mean([rep1, rep2])
         cv = np.std([rep1, rep2], ddof=0) / mean_val if mean_val > 0 else np.nan
-        rows.append({
+        row = {
             "analyte": analyte,
             "dilution": dilution,
             "rep1": rep1,
@@ -49,7 +59,10 @@ def qc_pc_replicates(df: pd.DataFrame, cv_threshold: float | None = None, config
             "mean": mean_val,
             "cv": cv,
             "flag": cv > cv_threshold if not np.isnan(cv) else False,
-        })
+        }
+        if has_pool:
+            row["pc_pool"] = pool
+        rows.append(row)
 
     cv_df = pd.DataFrame(rows)
     n_flagged = cv_df["flag"].sum() if len(cv_df) > 0 else 0

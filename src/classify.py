@@ -24,6 +24,11 @@ def classify_wells(df: pd.DataFrame, config: dict | None = None) -> pd.DataFrame
     df["well_type"] = df["sample_name"].apply(lambda n: _classify_sample(n, pc_pats, nc_pats))
     # PC dilutions are scraped from sample names; specimen dilution comes from config
     df["dilution"] = df["sample_name"].apply(_extract_dilution)
+    # Identify which standard curve pool each PC well belongs to
+    df["pc_pool"] = df.apply(
+        lambda r: _extract_pc_pool(r["sample_name"]) if r["well_type"] == "pc" else None,
+        axis=1,
+    )
     if config is not None:
         spec_dil = config.get("specimens", {}).get("default_dilution")
         if spec_dil is not None:
@@ -43,13 +48,28 @@ def _classify_sample(name: str, pc_patterns: list[str], nc_patterns: list[str]) 
 
 
 def _extract_dilution(name: str) -> float:
-    """Extract dilution denominator from PC sample names like 'PC 1:50' or 'ITM PC 50'."""
-    # Match "PC 1:50" or "ITM PC 1:50"
+    """Extract dilution denominator from PC sample names like 'PC 1:50' or 'ITM PC 50'.
+
+    Also handles 'ITM PC2 1:50' and 'ITM PC2 50'.
+    """
+    # Match "1:50" anywhere in the name (colon-based dilution)
     m = re.search(r"1:(\d+)", name)
     if m:
         return float(m.group(1))
-    # Match "PC 50" or "ITM PC 50" (just the number after PC)
-    m = re.search(r"PC\s+(\d+)", name, re.IGNORECASE)
+    # Match trailing number after "PC" or "PC2" — e.g., "ITM PC2 50" or "PC 100"
+    m = re.search(r"PC\d?\s+(\d+)", name, re.IGNORECASE)
     if m:
         return float(m.group(1))
     return float("nan")
+
+
+def _extract_pc_pool(name: str) -> str | None:
+    """Extract PC pool name from sample name.
+
+    'ITM PC2 1:50' → 'ITM PC2'
+    'ITM PC 1:50'  → 'ITM PC'
+    'PC 1:50'      → 'PC'
+    Returns None for non-PC wells.
+    """
+    m = re.match(r"((?:ITM\s*)?PC\d?)\s", name, re.IGNORECASE)
+    return m.group(1).strip() if m else None

@@ -39,79 +39,102 @@ def invert_4pl(y, a, b, c, d):
 
 
 def fit_standard_curves(df: pd.DataFrame, config: dict | None = None) -> dict:
-    """Fit 4PL curves to PC standard data for each antigen.
+    """Fit 4PL curves to PC standard data for each antigen, per pool.
 
     Args:
-        df: DataFrame with columns [well, sample_name, analyte, mfi, well_type, dilution]
-            filtered to well_type == 'pc'
+        df: DataFrame with columns [well, sample_name, analyte, mfi, well_type, dilution, pc_pool]
         config: optional config dict (from settings.load_config)
 
-    Returns dict keyed by analyte name, each value is a dict:
-        params: (a, b, c, d) tuple or None if fit failed
-        fit_ok: bool
-        std_data: DataFrame of the standard curve points used
-        error: error message if fit failed
+    Returns dict keyed by pool name, each value is a dict keyed by analyte:
+        {"ITM PC": {analyte: {params, fit_ok, std_data, ...}}, "ITM PC2": {...}}
+
+    When only one pool exists, the dict has a single key.
     """
     if config is None:
         config = load_config()
     antigens = get_antigen_names(config)
     recovery_tolerance = get_qc_thresholds(config).get("recovery_tolerance", RECOVERY_TOLERANCE)
-
-    pc = df[df["well_type"] == "pc"].copy()
-    results = {}
-
     drop_outlier = get_qc_thresholds(config).get("drop_outlier", True)
 
-    for analyte in antigens:
-        adata = pc[pc["analyte"] == analyte].copy()
-        if adata.empty:
-            results[analyte] = {"params": None, "fit_ok": False, "std_data": adata, "error": "No PC data"}
-            continue
+    pc = df[df["well_type"] == "pc"].copy()
 
-        # Average replicates at each dilution
-        means = adata.groupby("dilution")["mfi"].mean().reset_index()
-        means = means.sort_values("dilution")
+    # Discover pools; fall back to a single unnamed pool if pc_pool column missing
+    if "pc_pool" in pc.columns:
+        pools = sorted(pc["pc_pool"].dropna().unique())
+    else:
+        pools = ["PC"]
 
-        x = means["dilution"].values
-        y = means["mfi"].values
+    if not pools:
+        # No PC wells at all — return empty structure
+        return {"PC": {a: {"params": None, "fit_ok": False, "std_data": pd.DataFrame(),
+                           "mean_data": pd.DataFrame(), "error": "No PC data",
+                           "qc_warnings": [], "obs_exp": None,
+                           "reportable_range": None, "dropped_point": None}
+                       for a in antigens}}
 
-        params, fit_ok, error, qc_warnings = _fit_one(x, y, x_min=x.min(), x_max=x.max())
+    all_fits = {}
+    for pool in pools:
+        if "pc_pool" in pc.columns:
+            pool_data = pc[pc["pc_pool"] == pool]
+        else:
+            pool_data = pc
 
-        dropped_point = None
+        pool_results = {}
+        for analyte in antigens:
+            adata = pool_data[pool_data["analyte"] == analyte].copy()
+            if adata.empty:
+                pool_results[analyte] = {
+                    "params": None, "fit_ok": False, "std_data": adata,
+                    "mean_data": pd.DataFrame(), "error": "No PC data",
+                    "qc_warnings": [], "obs_exp": None,
+                    "reportable_range": None, "dropped_point": None,
+                }
+                continue
 
-        # Try dropping one outlier if enabled and fit failed (convergence or QC)
-        if drop_outlier and not fit_ok and len(x) >= 6:
-            best = _try_drop_one_outlier(x, y, x_min=x.min(), x_max=x.max())
-            if best is not None:
-                params, fit_ok, error, qc_warnings, drop_idx = best
-                dropped_point = {"dilution": x[drop_idx], "mfi": y[drop_idx], "index": int(drop_idx)}
-                # Update means to exclude the dropped point
-                keep = np.ones(len(x), dtype=bool)
-                keep[drop_idx] = False
-                means = means.iloc[keep].reset_index(drop=True)
-                x = means["dilution"].values
-                y = means["mfi"].values
+            # Average replicates at each dilution
+            means = adata.groupby("dilution")["mfi"].mean().reset_index()
+            means = means.sort_values("dilution")
 
-        # Obs/Exp recovery and reportable range
-        obs_exp = None
-        reportable_range = None
-        if params is not None:
-            obs_exp = _compute_obs_exp(x, y, params, tolerance=recovery_tolerance)
-            reportable_range = _compute_reportable_range(x, y, params, tolerance=recovery_tolerance)
+            x = means["dilution"].values
+            y = means["mfi"].values
 
-        results[analyte] = {
-            "params": params,
-            "fit_ok": fit_ok,
-            "std_data": adata,
-            "mean_data": means,
-            "error": error,
-            "qc_warnings": qc_warnings,
-            "obs_exp": obs_exp,
-            "reportable_range": reportable_range,
-            "dropped_point": dropped_point,
-        }
+            params, fit_ok, error, qc_warnings = _fit_one(x, y, x_min=x.min(), x_max=x.max())
 
-    return results
+            dropped_point = None
+
+            # Try dropping one outlier if enabled and fit failed
+            if drop_outlier and not fit_ok and len(x) >= 6:
+                best = _try_drop_one_outlier(x, y, x_min=x.min(), x_max=x.max())
+                if best is not None:
+                    params, fit_ok, error, qc_warnings, drop_idx = best
+                    dropped_point = {"dilution": x[drop_idx], "mfi": y[drop_idx], "index": int(drop_idx)}
+                    keep = np.ones(len(x), dtype=bool)
+                    keep[drop_idx] = False
+                    means = means.iloc[keep].reset_index(drop=True)
+                    x = means["dilution"].values
+                    y = means["mfi"].values
+
+            obs_exp = None
+            reportable_range = None
+            if params is not None:
+                obs_exp = _compute_obs_exp(x, y, params, tolerance=recovery_tolerance)
+                reportable_range = _compute_reportable_range(x, y, params, tolerance=recovery_tolerance)
+
+            pool_results[analyte] = {
+                "params": params,
+                "fit_ok": fit_ok,
+                "std_data": adata,
+                "mean_data": means,
+                "error": error,
+                "qc_warnings": qc_warnings,
+                "obs_exp": obs_exp,
+                "reportable_range": reportable_range,
+                "dropped_point": dropped_point,
+            }
+
+        all_fits[pool] = pool_results
+
+    return all_fits
 
 
 def _fit_one(x, y, x_min=None, x_max=None):
@@ -286,6 +309,11 @@ def _compute_reportable_range(x, y, params, tolerance=0.30):
     }
 
 
+def _pool_slug(pool_name: str) -> str:
+    """Convert pool name to a safe column suffix, e.g. 'ITM PC2' → 'ITM_PC2'."""
+    return pool_name.replace(" ", "_")
+
+
 def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
     """Apply 4PL inversion to compute AU (Arbitrary Units) for specimen wells.
 
@@ -296,50 +324,72 @@ def compute_concentrations(df: pd.DataFrame, fits: dict) -> pd.DataFrame:
 
     Formula:  AU = (first_dilution / dilution_equiv) * 1000
 
-    Adds columns:
-      'rau' — Arbitrary Units (AU); higher = more antibody.
-      'extrapolated' — True if specimen MFI is outside the observed standard
-                       curve range.
+    Args:
+        df: full DataFrame with well_type column
+        fits: dict[pool_name -> dict[analyte -> fit_result]]
+
+    When only one pool is present, columns are named 'rau', 'extrapolated',
+    'below_lloq', 'above_uloq' (backward compatible).
+    When multiple pools are present, per-pool columns are added:
+    'rau_{slug}', 'extrapolated_{slug}', 'below_lloq_{slug}', 'above_uloq_{slug}'
+    plus 'rau' etc. as copies of the first pool (default).
     """
-    AU_ANCHOR = 1000.0  # the AU value assigned to the first dilution
+    AU_ANCHOR = 1000.0
 
     specimens = df[df["well_type"] == "specimen"].copy()
-    specimens["rau"] = np.nan
-    specimens["extrapolated"] = False
-    specimens["below_lloq"] = False
-    specimens["above_uloq"] = False
 
-    for analyte, fit_result in fits.items():
-        # Compute AU whenever we have valid fit params, even if QC checks failed
-        if fit_result.get("params") is None:
-            continue
-        a, b, c, d = fit_result["params"]
-        mask = specimens["analyte"] == analyte
-        mfi_vals = specimens.loc[mask, "mfi"].values
-        dilution_equiv = invert_4pl(mfi_vals, a, b, c, d)
+    pools = list(fits.keys())
+    multi_pool = len(pools) > 1
 
-        # Determine the first (lowest) dilution from the standard curve data
-        std_data = fit_result.get("mean_data")
-        if std_data is not None and not std_data.empty:
-            first_dilution = std_data["dilution"].min()
-        else:
-            first_dilution = 1.0  # fallback
+    for pool_name in pools:
+        pool_fits = fits[pool_name]
+        slug = _pool_slug(pool_name)
 
-        # AU = (first_dilution / dilution_equiv) * 1000
-        rau_vals = (first_dilution / dilution_equiv) * AU_ANCHOR
-        specimens.loc[mask, "rau"] = rau_vals
+        # Column names: per-pool when multi, plain when single
+        rau_col = f"rau_{slug}" if multi_pool else "rau"
+        extrap_col = f"extrapolated_{slug}" if multi_pool else "extrapolated"
+        lloq_col = f"below_lloq_{slug}" if multi_pool else "below_lloq"
+        uloq_col = f"above_uloq_{slug}" if multi_pool else "above_uloq"
 
-        # Flag specimens outside the observed standard curve MFI range
-        if std_data is not None and not std_data.empty:
-            mfi_lo = std_data["mfi"].min()
-            mfi_hi = std_data["mfi"].max()
-            specimens.loc[mask, "extrapolated"] = (mfi_vals < mfi_lo) | (mfi_vals > mfi_hi)
+        specimens[rau_col] = np.nan
+        specimens[extrap_col] = False
+        specimens[lloq_col] = False
+        specimens[uloq_col] = False
 
-        # Flag specimens outside reportable range (reportable_range uses same AU scale)
-        rr = fit_result.get("reportable_range")
-        if rr and rr["lloq"] is not None and rr["uloq"] is not None:
-            specimens.loc[mask, "below_lloq"] = rau_vals < rr["lloq"]
-            specimens.loc[mask, "above_uloq"] = rau_vals > rr["uloq"]
+        for analyte, fit_result in pool_fits.items():
+            if fit_result.get("params") is None:
+                continue
+            a, b, c, d = fit_result["params"]
+            mask = specimens["analyte"] == analyte
+            mfi_vals = specimens.loc[mask, "mfi"].values
+            dilution_equiv = invert_4pl(mfi_vals, a, b, c, d)
+
+            std_data = fit_result.get("mean_data")
+            if std_data is not None and not std_data.empty:
+                first_dilution = std_data["dilution"].min()
+            else:
+                first_dilution = 1.0
+
+            rau_vals = (first_dilution / dilution_equiv) * AU_ANCHOR
+            specimens.loc[mask, rau_col] = rau_vals
+
+            if std_data is not None and not std_data.empty:
+                mfi_lo = std_data["mfi"].min()
+                mfi_hi = std_data["mfi"].max()
+                specimens.loc[mask, extrap_col] = (mfi_vals < mfi_lo) | (mfi_vals > mfi_hi)
+
+            rr = fit_result.get("reportable_range")
+            if rr and rr["lloq"] is not None and rr["uloq"] is not None:
+                specimens.loc[mask, lloq_col] = rau_vals < rr["lloq"]
+                specimens.loc[mask, uloq_col] = rau_vals > rr["uloq"]
+
+    # For multi-pool: also set the plain 'rau' etc. from the first pool as default
+    if multi_pool:
+        first_slug = _pool_slug(pools[0])
+        specimens["rau"] = specimens[f"rau_{first_slug}"]
+        specimens["extrapolated"] = specimens[f"extrapolated_{first_slug}"]
+        specimens["below_lloq"] = specimens[f"below_lloq_{first_slug}"]
+        specimens["above_uloq"] = specimens[f"above_uloq_{first_slug}"]
 
     return specimens
 

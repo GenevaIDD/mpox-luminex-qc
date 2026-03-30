@@ -86,17 +86,21 @@ def run_pipeline(
     # 10. Plate summary
     summary = plate_summary(data)
 
-    # 11. History — load, append, save
-    std_history_path = Path(history_dir) / "std_curve_history.json"
+    # 11. History — load, append, save (per pool)
     nc_history_path = Path(history_dir) / "nc_history.json"
     fit_history_path = Path(history_dir) / "fit_history.json"
 
-    # Standard curve history
-    history_std = load_history(std_history_path)
-    new_std = _build_std_history(metadata, fits)
-    if not new_std.empty:
-        history_std = append_history(history_std, new_std, ["plate_id", "analyte", "dilution"])
-        save_history(history_std, std_history_path)
+    # Standard curve history — per pool
+    history_std = {}
+    for pool_name in fits:
+        pool_slug = pool_name.replace(" ", "_")
+        std_path = Path(history_dir) / f"std_curve_history_{pool_slug}.json"
+        h = load_history(std_path)
+        new_std = _build_std_history(metadata, fits[pool_name], pool_name)
+        if not new_std.empty:
+            h = append_history(h, new_std, ["plate_id", "analyte", "dilution"])
+            save_history(h, std_path)
+        history_std[pool_name] = h
 
     # NC history
     history_nc = load_history(nc_history_path)
@@ -105,12 +109,17 @@ def run_pipeline(
         history_nc = append_history(history_nc, new_nc, ["plate_id", "analyte"])
         save_history(history_nc, nc_history_path)
 
-    # Fit history
-    history_fit = load_history(fit_history_path)
-    new_fit = _build_fit_history(metadata, fits)
-    if not new_fit.empty:
-        history_fit = append_history(history_fit, new_fit, ["plate_id", "analyte"])
-        save_history(history_fit, fit_history_path)
+    # Fit history — per pool
+    history_fit = {}
+    for pool_name in fits:
+        pool_slug = pool_name.replace(" ", "_")
+        fit_path = Path(history_dir) / f"fit_history_{pool_slug}.json"
+        h = load_history(fit_path)
+        new_fit = _build_fit_history(metadata, fits[pool_name], pool_name)
+        if not new_fit.empty:
+            h = append_history(h, new_fit, ["plate_id", "analyte"])
+            save_history(h, fit_path)
+        history_fit[pool_name] = h
 
     # 12. Generate report
     report_name = f"QC_{metadata['plate_id']}.html"
@@ -134,32 +143,62 @@ def run_pipeline(
     # 13. Export specimen results CSV
     if not specimen_results.empty:
         csv_out = output_dir / f"specimens_{metadata['plate_id']}.csv"
-        export_df = specimen_results.rename(columns={"rau": "AU"})
-        # Add au_censored: none / left (below LLOQ) / right (above ULOQ)
+        export_df = specimen_results.copy()
+
+        pools = list(fits.keys())
+        multi_pool = len(pools) > 1
+
+        if multi_pool:
+            # Per-pool AU columns + censored flags
+            for pool_name in pools:
+                slug = pool_name.replace(" ", "_")
+                rau_col = f"rau_{slug}"
+                lloq_col = f"below_lloq_{slug}"
+                uloq_col = f"above_uloq_{slug}"
+                au_col = f"AU_{slug}"
+                cens_col = f"au_censored_{slug}"
+
+                if rau_col in export_df.columns:
+                    export_df = export_df.rename(columns={rau_col: au_col})
+                if lloq_col in export_df.columns and uloq_col in export_df.columns:
+                    export_df[cens_col] = "none"
+                    export_df.loc[export_df[lloq_col], cens_col] = "left"
+                    export_df.loc[export_df[uloq_col], cens_col] = "right"
+            # Also rename plain rau → AU (first pool default)
+            if "rau" in export_df.columns:
+                export_df = export_df.rename(columns={"rau": "AU"})
+        else:
+            export_df = export_df.rename(columns={"rau": "AU"})
+
+        # Add au_censored from the default (plain) columns
         if "below_lloq" in export_df.columns and "above_uloq" in export_df.columns:
             export_df["au_censored"] = "none"
             export_df.loc[export_df["below_lloq"], "au_censored"] = "left"
             export_df.loc[export_df["above_uloq"], "au_censored"] = "right"
+
         export_df.to_csv(csv_out, index=False, encoding="utf-8")
 
     return report_path
 
 
-def _build_std_history(metadata: dict, fits: dict) -> pd.DataFrame:
-    """Build standard curve history entries from current plate fits."""
+def _build_std_history(metadata: dict, pool_fits: dict, pool_name: str = "") -> pd.DataFrame:
+    """Build standard curve history entries from current plate fits for one pool."""
     rows = []
-    for analyte, fit in fits.items():
+    for analyte, fit in pool_fits.items():
         std_data = fit.get("std_data", pd.DataFrame())
         if std_data.empty:
             continue
         for _, r in std_data.iterrows():
-            rows.append({
+            row = {
                 "plate_id": metadata["plate_id"],
                 "run_date": metadata.get("run_date", ""),
                 "analyte": analyte,
                 "dilution": r["dilution"],
                 "mfi": r["mfi"],
-            })
+            }
+            if pool_name:
+                row["pool"] = pool_name
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -173,16 +212,18 @@ def _build_nc_history(metadata: dict, nc_levels: pd.DataFrame) -> pd.DataFrame:
     return nc_mean
 
 
-def _build_fit_history(metadata: dict, fits: dict) -> pd.DataFrame:
-    """Build fit coefficient history entries."""
+def _build_fit_history(metadata: dict, pool_fits: dict, pool_name: str = "") -> pd.DataFrame:
+    """Build fit coefficient history entries for one pool."""
     rows = []
-    for analyte, fit in fits.items():
+    for analyte, fit in pool_fits.items():
         row = {
             "plate_id": metadata["plate_id"],
             "run_date": metadata.get("run_date", ""),
             "analyte": analyte,
             "fit_ok": fit["fit_ok"],
         }
+        if pool_name:
+            row["pool"] = pool_name
         if fit["params"]:
             a, b, c, d = fit["params"]
             row.update({"a": a, "b": b, "c": c, "d": d})

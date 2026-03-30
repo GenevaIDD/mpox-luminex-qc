@@ -89,9 +89,10 @@
 <h2>3. PC Standard Curves (4PL)</h2>
 
 <table>
-  <tr><th>Analyte</th><th>Fit OK</th><th>a (min)</th><th>b (slope)</th><th>c (IC50)</th><th>d (max)</th><th>Reportable Range</th><th>Issues</th></tr>
+  <tr>{% if multi_pool %}<th>Pool</th>{% endif %}<th>Analyte</th><th>Fit OK</th><th>a (min)</th><th>b (slope)</th><th>c (IC50)</th><th>d (max)</th><th>Reportable Range</th><th>Issues</th></tr>
   {% for row in fits %}
   <tr class="{{ 'ok' if row.fit_ok else 'flag' }}">
+    {% if multi_pool %}<td>{{ row.pool }}</td>{% endif %}
     <td>{{ row.analyte }}</td>
     <td>{{ 'Yes' if row.fit_ok else 'FAILED' }}</td>
     <td>{{ row.a }}</td><td>{{ row.b }}</td><td>{{ row.c }}</td><td>{{ row.d }}</td>
@@ -101,8 +102,17 @@
   {% endfor %}
 </table>
 
-{% if 'standard_curves' in figures %}
-<div class="plot-container" id="standard_curves"></div>
+{% if multi_pool %}
+  {% for slug in pool_slugs %}
+  {% set fig_key = 'standard_curves_' + slug %}
+  {% if fig_key in figures %}
+  <div class="plot-container" id="{{ fig_key }}"></div>
+  {% endif %}
+  {% endfor %}
+{% else %}
+  {% if 'standard_curves' in figures %}
+  <div class="plot-container" id="standard_curves"></div>
+  {% endif %}
 {% endif %}
 
 <details>
@@ -110,7 +120,7 @@
 <p style="font-size:12px; color:#666;">For each standard point, the measured MFI is backcalculated through the 4PL curve to get the "observed" dilution. Recovery = (Observed / Expected) × 100%. Values outside {{ recovery_range }} are flagged. The reportable range (LLOQ–ULOQ) spans standard points with acceptable recovery.</p>
 {% for row in fits %}
 {% if row.obs_exp %}
-<h4>{{ row.analyte }}</h4>
+{% if multi_pool %}<h4>{{ row.pool }} — {{ row.analyte }}</h4>{% else %}<h4>{{ row.analyte }}</h4>{% endif %}
 <table>
   <tr><th>Expected Dilution</th><th>MFI</th><th>Backcalculated Dilution</th><th>Recovery %</th><th>Status</th></tr>
   {% for pt in row.obs_exp %}
@@ -139,8 +149,17 @@
 {% endif %}
 
 <p style="font-size:12px; color:#666;">Panel plot shows <strong>mean MFI across PC replicates</strong> at each dilution, tracked across plates. Current plate highlighted in red.</p>
-{% if 'pc_mfi_history' in figures %}
-<div class="plot-container" id="pc_mfi_history"></div>
+{% if multi_pool %}
+  {% for slug in pool_slugs %}
+  {% set fig_key = 'pc_mfi_history_' + slug %}
+  {% if fig_key in figures %}
+  <div class="plot-container" id="{{ fig_key }}"></div>
+  {% endif %}
+  {% endfor %}
+{% else %}
+  {% if 'pc_mfi_history' in figures %}
+  <div class="plot-container" id="pc_mfi_history"></div>
+  {% endif %}
 {% endif %}
 
 <details>

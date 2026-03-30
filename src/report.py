@@ -37,12 +37,34 @@ def generate_report(
     current_plate_id = metadata.get("plate_id", "")
 
     # Build all the plotly figures
+    # fits is now dict[pool -> dict[analyte -> fit_result]]
+    pools = list(fits.keys())
+    multi_pool = len(pools) > 1
+
     figures = {}
     figures["bead_heatmap"] = _make_bead_heatmap(bead_qc["by_well"])
-    figures["standard_curves"] = _make_standard_curve_plots(fits, specimen_results, history_std)
+
+    # Standard curve plots — one per pool (use slug for valid HTML IDs)
+    pool_slugs = [p.replace(" ", "_") for p in pools]
+    for pool_name, slug in zip(pools, pool_slugs):
+        pool_fits = fits[pool_name]
+        pool_history = history_std.get(pool_name) if isinstance(history_std, dict) else history_std
+        suffix = f" — {pool_name}" if multi_pool else ""
+        key = f"standard_curves_{slug}" if multi_pool else "standard_curves"
+        figures[key] = _make_standard_curve_plots(
+            pool_fits, specimen_results, pool_history, title_suffix=suffix
+        )
+
     if replicate_qc["has_replicates"]:
         figures["replicate_cv"] = _make_replicate_plot(replicate_qc["replicate_cv"])
-    figures["pc_mfi_history"] = _make_pc_mfi_history(history_std, current_plate_id)
+
+    # PC MFI history — one per pool
+    for pool_name, slug in zip(pools, pool_slugs):
+        pool_history = history_std.get(pool_name) if isinstance(history_std, dict) else history_std
+        suffix = f" — {pool_name}" if multi_pool else ""
+        key = f"pc_mfi_history_{slug}" if multi_pool else "pc_mfi_history"
+        figures[key] = _make_pc_mfi_history(pool_history, current_plate_id, title_suffix=suffix)
+
     figures["nc_levels"] = _make_nc_plot(nc_levels, history_nc)
     figures["nc_history"] = _make_nc_history(history_nc, current_plate_id)
     figures["kit_controls"] = _make_kit_control_plots(kit_controls)
@@ -70,12 +92,15 @@ def generate_report(
         metadata=metadata,
         summary=summary,
         bead_qc=bead_qc,
-        fits=_fits_to_table(fits),
+        fits=_fits_to_table(fits, multi_pool=multi_pool),
+        pools=pools,
+        pool_slugs=pool_slugs,
+        multi_pool=multi_pool,
         replicate_qc=replicate_qc,
         nc_levels=nc_levels.to_dict("records") if not nc_levels.empty else [],
         kit_controls=_kit_controls_to_tables(kit_controls),
         kit_control_refs=_kit_control_reference_table(),
-        specimen_results=_specimen_to_table(specimen_results),
+        specimen_results=_specimen_to_table(specimen_results, pools=pools if multi_pool else None),
         extrapolation=_extrapolation_summary(specimen_results),
         figures=figure_json,
         plotly_js=plotly.offline.get_plotlyjs(),
@@ -136,10 +161,11 @@ def _make_bead_heatmap(by_well: pd.DataFrame) -> go.Figure:
             textfont=dict(size=8),
             name=style["name"],
             hovertemplate=(
-                "Well %{customdata[0]}: %{customdata[1]:.0f} beads"
+                "Well %{customdata[0]} — %{customdata[2]}"
+                "<br>%{customdata[1]:.0f} beads"
                 "<br>Type: " + style["name"] + "<extra></extra>"
             ),
-            customdata=list(zip(subset["well"], subset["median_count"])),
+            customdata=list(zip(subset["well"], subset["median_count"], subset["sample_name"])),
         ))
 
     # Add invisible traces for the color legend
@@ -169,9 +195,15 @@ def _make_bead_heatmap(by_well: pd.DataFrame) -> go.Figure:
 
 
 def _make_standard_curve_plots(
-    fits: dict, specimens: pd.DataFrame, history: pd.DataFrame | None
+    fits: dict, specimens: pd.DataFrame, history: pd.DataFrame | None,
+    title_suffix: str = "",
 ) -> go.Figure:
-    """Standard curve plots for all 8 antigens in a 2x4 grid."""
+    """Standard curve plots for all 8 antigens in a 2x4 grid.
+
+    Args:
+        fits: dict[analyte -> fit_result] for ONE pool
+        title_suffix: e.g. ' — ITM PC2' for multi-pool reports
+    """
     fig = make_subplots(rows=2, cols=4, subplot_titles=MPXV_ANTIGENS,
                         horizontal_spacing=0.06, vertical_spacing=0.12)
 
@@ -298,7 +330,7 @@ def _make_standard_curve_plots(
     for row in range(1, 3):
         fig.update_yaxes(title_text="MFI", row=row, col=1)
 
-    fig.update_layout(height=600, title_text="PC Standard Curves (4PL)", margin=dict(t=60))
+    fig.update_layout(height=600, title_text=f"PC Standard Curves (4PL){title_suffix}", margin=dict(t=60))
     return fig
 
 
@@ -372,7 +404,8 @@ def _plate_sort_and_label(history: pd.DataFrame) -> list[tuple[str, str]]:
     return result
 
 
-def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) -> go.Figure | None:
+def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
+                         title_suffix: str = "") -> go.Figure | None:
     """Panel plot: PC MFI by plate for each analyte (2x4 grid)."""
     if history is None or history.empty:
         return None
@@ -418,7 +451,7 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str) ->
 
     fig.update_layout(
         height=800,
-        title_text="PC Standard MFI Across Plates (by dilution)",
+        title_text=f"PC Standard MFI Across Plates (by dilution){title_suffix}",
         margin=dict(t=60, b=120),
     )
     fig.update_xaxes(tickangle=-90, tickfont=dict(size=10))
@@ -548,23 +581,31 @@ def _make_specimen_distribution(specimens: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _fits_to_table(fits: dict) -> list[dict]:
-    """Convert fits dict to a list of dicts for the template."""
+def _fits_to_table(fits: dict, multi_pool: bool = False) -> list[dict]:
+    """Convert nested fits dict to a list of dicts for the template.
+
+    Args:
+        fits: dict[pool_name -> dict[analyte -> fit_result]]
+        multi_pool: if True, include 'pool' key in each row
+    """
     rows = []
-    for analyte in MPXV_ANTIGENS:
-        f = fits.get(analyte, {})
-        row = {"analyte": analyte, "fit_ok": f.get("fit_ok", False)}
-        if f.get("params"):
-            a, b, c, d = f["params"]
-            row.update({"a": f"{a:.1f}", "b": f"{b:.3f}", "c": f"{c:.1f}", "d": f"{d:.1f}"})
-        else:
-            row.update({"a": "-", "b": "-", "c": "-", "d": "-"})
-        row["error"] = f.get("error", "")
-        row["qc_warnings"] = f.get("qc_warnings", [])
-        row["obs_exp"] = f.get("obs_exp")
-        row["reportable_range"] = f.get("reportable_range")
-        row["dropped_point"] = f.get("dropped_point")
-        rows.append(row)
+    for pool_name, pool_fits in fits.items():
+        for analyte in MPXV_ANTIGENS:
+            f = pool_fits.get(analyte, {})
+            row = {"analyte": analyte, "fit_ok": f.get("fit_ok", False)}
+            if multi_pool:
+                row["pool"] = pool_name
+            if f.get("params"):
+                a, b, c, d = f["params"]
+                row.update({"a": f"{a:.1f}", "b": f"{b:.3f}", "c": f"{c:.1f}", "d": f"{d:.1f}"})
+            else:
+                row.update({"a": "-", "b": "-", "c": "-", "d": "-"})
+            row["error"] = f.get("error", "")
+            row["qc_warnings"] = f.get("qc_warnings", [])
+            row["obs_exp"] = f.get("obs_exp")
+            row["reportable_range"] = f.get("reportable_range")
+            row["dropped_point"] = f.get("dropped_point")
+            rows.append(row)
     return rows
 
 
@@ -605,12 +646,16 @@ def _kit_controls_to_tables(kit_controls: dict) -> dict:
     return result
 
 
-def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
-    """Pivot specimen results to wide format for the table."""
+def _specimen_to_table(specimens: pd.DataFrame, pools: list[str] | None = None) -> list[dict]:
+    """Pivot specimen results to wide format for the table.
+
+    When multiple pools are present, AU columns are output per pool:
+    {analyte}_AU_{pool_slug} for each pool, plus {analyte}_AU as default.
+    """
     if specimens.empty:
         return []
-    # Pivot: one row per well, columns for each antigen's MFI and RAU
     antigens = [a for a in MPXV_ANTIGENS if a in specimens["analyte"].unique()]
+    multi_pool = pools is not None and len(pools) > 1
 
     rows = []
     for well in specimens["well"].unique():
@@ -621,11 +666,42 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
             arow = wdata[wdata["analyte"] == analyte]
             if not arow.empty:
                 row[f"{analyte}_mfi"] = int(round(arow["mfi"].iloc[0]))
+
+                # Per-pool AU values
+                if multi_pool:
+                    for pool_name in pools:
+                        slug = pool_name.replace(" ", "_")
+                        rau_col = f"rau_{slug}"
+                        lloq_col = f"below_lloq_{slug}"
+                        uloq_col = f"above_uloq_{slug}"
+                        extrap_col = f"extrapolated_{slug}"
+
+                        rau = arow[rau_col].iloc[0] if rau_col in arow.columns else np.nan
+                        below = bool(arow[lloq_col].iloc[0]) if lloq_col in arow.columns else False
+                        above = bool(arow[uloq_col].iloc[0]) if uloq_col in arow.columns else False
+                        extrap = bool(arow[extrap_col].iloc[0]) if extrap_col in arow.columns else False
+
+                        rau_str = None
+                        if pd.notna(rau):
+                            if extrap and not below and not above:
+                                rau_str = f"{rau:.1f}*"
+                            else:
+                                rau_str = f"{rau:.1f}"
+                        row[f"{analyte}_AU_{slug}"] = rau_str
+
+                        if below:
+                            cens = "left"
+                        elif above:
+                            cens = "right"
+                        else:
+                            cens = "none"
+                        row[f"{analyte}_censored_{slug}"] = cens
+
+                # Default AU (from plain columns — always present)
                 rau = arow["rau"].iloc[0]
                 below_lloq = bool(arow["below_lloq"].iloc[0]) if "below_lloq" in arow.columns else False
                 above_uloq = bool(arow["above_uloq"].iloc[0]) if "above_uloq" in arow.columns else False
                 extrap = bool(arow["extrapolated"].iloc[0]) if "extrapolated" in arow.columns else False
-                # au_censored: none / left (below LLOQ) / right (above ULOQ)
                 if below_lloq:
                     censored = "left"
                 elif above_uloq:
@@ -635,7 +711,7 @@ def _specimen_to_table(specimens: pd.DataFrame) -> list[dict]:
                 rau_str = None
                 if pd.notna(rau):
                     if extrap and not below_lloq and not above_uloq:
-                        rau_str = f"{rau:.1f}*"  # extrapolated but within range
+                        rau_str = f"{rau:.1f}*"
                     else:
                         rau_str = f"{rau:.1f}"
                 row[f"{analyte}_AU"] = rau_str
