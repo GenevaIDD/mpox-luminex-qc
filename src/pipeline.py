@@ -147,6 +147,7 @@ def run_pipeline(
         history_nc=history_nc,
         output_path=report_path,
         plate_order=plate_order,
+        config=config,
     )
 
     # 13. Export specimen results CSV

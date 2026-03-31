@@ -48,14 +48,14 @@ def qc_pc_replicates(df: pd.DataFrame, cv_threshold: float | None = None, config
         values = group["mfi"].values
         if len(values) < 2:
             continue
-        rep1, rep2 = values[0], values[1]
-        mean_val = np.mean([rep1, rep2])
-        cv = np.std([rep1, rep2], ddof=0) / mean_val if mean_val > 0 else np.nan
+        mean_val = float(np.mean(values))
+        cv = float(np.std(values, ddof=1) / mean_val) if mean_val > 0 else np.nan
         row = {
             "analyte": analyte,
             "dilution": dilution,
-            "rep1": rep1,
-            "rep2": rep2,
+            "rep1": values[0],
+            "rep2": values[1],
+            "n_reps": len(values),
             "mean": mean_val,
             "cv": cv,
             "flag": cv > cv_threshold if not np.isnan(cv) else False,

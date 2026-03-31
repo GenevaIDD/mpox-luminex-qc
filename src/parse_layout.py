@@ -1,8 +1,11 @@
 """Parse optional plate layout xlsx files."""
 
+import logging
 from pathlib import Path
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def read_plate_layout(path: str | Path) -> pd.DataFrame | None:
@@ -17,7 +20,8 @@ def read_plate_layout(path: str | Path) -> pd.DataFrame | None:
 
     try:
         df = pd.read_excel(path, sheet_name="Sample list", header=None)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not parse plate layout '%s': %s", path, exc)
         return None
 
     # First row is the header

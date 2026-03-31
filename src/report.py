@@ -27,15 +27,33 @@ def generate_report(
     kit_controls: dict,
     specimen_results: pd.DataFrame,
     summary: dict,
-    history_std: pd.DataFrame | None = None,
+    history_std: dict | pd.DataFrame | None = None,
     history_nc: pd.DataFrame | None = None,
     output_path: str | Path = "report.html",
     plate_order: list | None = None,
+    config: dict | None = None,
 ) -> Path:
     """Generate the full QC report as a self-contained HTML file."""
     output_path = Path(output_path)
 
     current_plate_id = metadata.get("plate_id", "")
+
+    # Resolve antigen names and QC thresholds from config (fall back to module defaults)
+    if config:
+        antigens = [a["name"] for a in config.get("panel", {}).get("antigens", [])] or MPXV_ANTIGENS
+        qc = config.get("qc_thresholds", {})
+        recovery_tolerance = qc.get("recovery_tolerance", RECOVERY_TOLERANCE)
+        nc_bead_mfi_max = qc.get("nc_bead_mfi_max", NC_BEAD_MFI_MAX)
+        scg_mfi_min = qc.get("scg_mfi_min", SCG_MFI_MIN)
+        fc_mfi_range = tuple(qc.get("fc_mfi_range", FC_MFI_RANGE))
+        ic_mfi_range = tuple(qc.get("ic_mfi_range", IC_MFI_RANGE))
+    else:
+        antigens = MPXV_ANTIGENS
+        recovery_tolerance = RECOVERY_TOLERANCE
+        nc_bead_mfi_max = NC_BEAD_MFI_MAX
+        scg_mfi_min = SCG_MFI_MIN
+        fc_mfi_range = FC_MFI_RANGE
+        ic_mfi_range = IC_MFI_RANGE
 
     # Build all the plotly figures
     # fits is now dict[pool -> dict[analyte -> fit_result]]
@@ -53,7 +71,7 @@ def generate_report(
         suffix = f" — {pool_name}"  # always show pool name in title
         key = f"standard_curves_{slug}" if multi_pool else "standard_curves"
         figures[key] = _make_standard_curve_plots(
-            pool_fits, specimen_results, pool_history, title_suffix=suffix
+            pool_fits, specimen_results, pool_history, title_suffix=suffix, antigens=antigens
         )
 
     if replicate_qc["has_replicates"]:
@@ -65,13 +83,14 @@ def generate_report(
         suffix = f" — {pool_name}"  # always show pool name in title
         key = f"pc_mfi_history_{slug}" if multi_pool else "pc_mfi_history"
         figures[key] = _make_pc_mfi_history(pool_history, current_plate_id, title_suffix=suffix,
-                                             plate_order=plate_order)
+                                             plate_order=plate_order, antigens=antigens)
 
     figures["nc_levels"] = _make_nc_plot(nc_levels, history_nc)
-    figures["nc_history"] = _make_nc_history(history_nc, current_plate_id, plate_order=plate_order)
+    figures["nc_history"] = _make_nc_history(history_nc, current_plate_id, plate_order=plate_order,
+                                              antigens=antigens)
     figures["kit_controls"] = _make_kit_control_plots(kit_controls)
     if not specimen_results.empty:
-        figures["specimen_mfi"] = _make_specimen_distribution(specimen_results)
+        figures["specimen_mfi"] = _make_specimen_distribution(specimen_results, antigens=antigens)
 
     # Convert figures to JSON for embedding
     figure_json = {}
@@ -87,23 +106,29 @@ def generate_report(
     env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
     template = env.get_template("report.html")
 
-    recovery_lo = int((1.0 - RECOVERY_TOLERANCE) * 100)
-    recovery_hi = int((1.0 + RECOVERY_TOLERANCE) * 100)
+    recovery_lo = int((1.0 - recovery_tolerance) * 100)
+    recovery_hi = int((1.0 + recovery_tolerance) * 100)
 
     html = template.render(
         metadata=metadata,
         summary=summary,
         bead_qc=bead_qc,
-        fits=_fits_to_table(fits, multi_pool=multi_pool),
+        fits=_fits_to_table(fits, multi_pool=multi_pool, antigens=antigens),
         pools=pools,
         pool_slugs=pool_slugs,
         multi_pool=multi_pool,
         replicate_qc=replicate_qc,
         nc_levels=nc_levels.to_dict("records") if not nc_levels.empty else [],
         kit_controls=_kit_controls_to_tables(kit_controls),
-        kit_control_refs=_kit_control_reference_table(),
-        specimen_results=_specimen_to_table(specimen_results, pools=pools if multi_pool else None),
-        extrapolation=_extrapolation_summary(specimen_results),
+        kit_control_refs=_kit_control_reference_table(
+            nc_bead_mfi_max=nc_bead_mfi_max,
+            scg_mfi_min=scg_mfi_min,
+            fc_mfi_range=fc_mfi_range,
+            ic_mfi_range=ic_mfi_range,
+        ),
+        specimen_results=_specimen_to_table(specimen_results, pools=pools if multi_pool else None,
+                                            antigens=antigens),
+        extrapolation=_extrapolation_summary(specimen_results, antigens=antigens),
         figures=figure_json,
         plotly_js=plotly.offline.get_plotlyjs(),
         version=APP_VERSION,
@@ -199,17 +224,20 @@ def _make_bead_heatmap(by_well: pd.DataFrame) -> go.Figure:
 def _make_standard_curve_plots(
     fits: dict, specimens: pd.DataFrame, history: pd.DataFrame | None,
     title_suffix: str = "",
+    antigens: list | None = None,
 ) -> go.Figure:
-    """Standard curve plots for all 8 antigens in a 2x4 grid.
+    """Standard curve plots for all antigens in a 2x4 grid.
 
     Args:
         fits: dict[analyte -> fit_result] for ONE pool
         title_suffix: e.g. ' — ITM PC2' for multi-pool reports
+        antigens: ordered list of antigen names from config (falls back to MPXV_ANTIGENS)
     """
-    fig = make_subplots(rows=2, cols=4, subplot_titles=MPXV_ANTIGENS,
+    _antigens = antigens or MPXV_ANTIGENS
+    fig = make_subplots(rows=2, cols=4, subplot_titles=_antigens,
                         horizontal_spacing=0.06, vertical_spacing=0.12)
 
-    for i, analyte in enumerate(MPXV_ANTIGENS):
+    for i, analyte in enumerate(_antigens):
         row = i // 4 + 1
         col = i % 4 + 1
         fit = fits.get(analyte, {})
@@ -424,23 +452,25 @@ def _plate_sort_and_label(history: pd.DataFrame,
 
 def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
                          title_suffix: str = "",
-                         plate_order: list | None = None) -> go.Figure | None:
+                         plate_order: list | None = None,
+                         antigens: list | None = None) -> go.Figure | None:
     """Panel plot: PC MFI by plate for each analyte (2x4 grid)."""
     if history is None or history.empty:
         return None
 
-    antigens = [a for a in MPXV_ANTIGENS if a in history["analyte"].unique()]
-    if not antigens:
+    _antigens = antigens or MPXV_ANTIGENS
+    antigens_in_history = [a for a in _antigens if a in history["analyte"].unique()]
+    if not antigens_in_history:
         return None
 
-    fig = make_subplots(rows=2, cols=4, subplot_titles=antigens[:8],
+    fig = make_subplots(rows=2, cols=4, subplot_titles=antigens_in_history[:8],
                         horizontal_spacing=0.06, vertical_spacing=0.25)
 
     sorted_plates = _plate_sort_and_label(history, plate_order=plate_order)
     plates = [pid for pid, _ in sorted_plates]
     plate_labels = [label for _, label in sorted_plates]
 
-    for i, analyte in enumerate(antigens[:8]):
+    for i, analyte in enumerate(antigens_in_history[:8]):
         row = i // 4 + 1
         col = i % 4 + 1
         adata = history[history["analyte"] == analyte]
@@ -499,12 +529,14 @@ def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.F
 
 
 def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
-                     plate_order: list | None = None) -> go.Figure | None:
+                     plate_order: list | None = None,
+                     antigens: list | None = None) -> go.Figure | None:
     """Panel plot: NC MFI by plate for each analyte (2x4 grid)."""
     if history_nc is None or history_nc.empty:
         return None
 
-    antigens = [a for a in MPXV_ANTIGENS if a in history_nc["analyte"].unique()]
+    _antigens = antigens or MPXV_ANTIGENS
+    antigens = [a for a in _antigens if a in history_nc["analyte"].unique()]
     if not antigens:
         return None
 
@@ -570,9 +602,10 @@ def _make_kit_control_plots(kit_controls: dict) -> go.Figure:
     return fig
 
 
-def _make_specimen_distribution(specimens: pd.DataFrame) -> go.Figure:
+def _make_specimen_distribution(specimens: pd.DataFrame, antigens: list | None = None) -> go.Figure:
     """MFI distribution histograms for specimens, faceted by antigen."""
-    antigens_present = [a for a in MPXV_ANTIGENS if a in specimens["analyte"].unique()]
+    _antigens = antigens or MPXV_ANTIGENS
+    antigens_present = [a for a in _antigens if a in specimens["analyte"].unique()]
     n = len(antigens_present)
     if n == 0:
         return None
@@ -601,16 +634,18 @@ def _make_specimen_distribution(specimens: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _fits_to_table(fits: dict, multi_pool: bool = False) -> list[dict]:
+def _fits_to_table(fits: dict, multi_pool: bool = False, antigens: list | None = None) -> list[dict]:
     """Convert nested fits dict to a list of dicts for the template.
 
     Args:
         fits: dict[pool_name -> dict[analyte -> fit_result]]
         multi_pool: if True, include 'pool' key in each row
+        antigens: ordered antigen list from config (falls back to MPXV_ANTIGENS)
     """
+    _antigens = antigens or MPXV_ANTIGENS
     rows = []
     for pool_name, pool_fits in fits.items():
-        for analyte in MPXV_ANTIGENS:
+        for analyte in _antigens:
             f = pool_fits.get(analyte, {})
             row = {"analyte": analyte, "fit_ok": f.get("fit_ok", False)}
             if multi_pool:
@@ -629,28 +664,33 @@ def _fits_to_table(fits: dict, multi_pool: bool = False) -> list[dict]:
     return rows
 
 
-def _kit_control_reference_table() -> list[dict]:
+def _kit_control_reference_table(
+    nc_bead_mfi_max: int = NC_BEAD_MFI_MAX,
+    scg_mfi_min: int = SCG_MFI_MIN,
+    fc_mfi_range: tuple = FC_MFI_RANGE,
+    ic_mfi_range: tuple = IC_MFI_RANGE,
+) -> list[dict]:
     """Return reference info for kit control beads for display in report."""
     return [
         {
             "name": "NC (Negative Control)",
             "purpose": "Non-specific background; should be near-zero MFI",
-            "criterion": f"MFI ≤ {NC_BEAD_MFI_MAX}",
+            "criterion": f"MFI ≤ {nc_bead_mfi_max}",
         },
         {
             "name": "ScG (Human IgG Sample Control)",
             "purpose": "Verifies sample detection pathway; confirms assay recognizes human IgG",
-            "criterion": f"MFI ≥ {SCG_MFI_MIN:,}",
+            "criterion": f"MFI ≥ {scg_mfi_min:,}",
         },
         {
             "name": "FC (Fluorescent Conjugate)",
             "purpose": "Fluorescent reference bead; checks detector calibration",
-            "criterion": f"MFI {FC_MFI_RANGE[0]:,} – {FC_MFI_RANGE[1]:,}",
+            "criterion": f"MFI {fc_mfi_range[0]:,} – {fc_mfi_range[1]:,}",
         },
         {
             "name": "IC (Instrument Control)",
             "purpose": "Internal bead consistency control; should be stable across plates",
-            "criterion": f"MFI {IC_MFI_RANGE[0]:,} – {IC_MFI_RANGE[1]:,}",
+            "criterion": f"MFI {ic_mfi_range[0]:,} – {ic_mfi_range[1]:,}",
         },
     ]
 
@@ -677,7 +717,8 @@ def _kit_controls_to_tables(kit_controls: dict) -> dict:
     return result
 
 
-def _specimen_to_table(specimens: pd.DataFrame, pools: list[str] | None = None) -> list[dict]:
+def _specimen_to_table(specimens: pd.DataFrame, pools: list[str] | None = None,
+                       antigens: list | None = None) -> list[dict]:
     """Pivot specimen results to wide format for the table.
 
     When multiple pools are present, AU columns are output per pool:
@@ -685,7 +726,8 @@ def _specimen_to_table(specimens: pd.DataFrame, pools: list[str] | None = None) 
     """
     if specimens.empty:
         return []
-    antigens = [a for a in MPXV_ANTIGENS if a in specimens["analyte"].unique()]
+    _antigens = antigens or MPXV_ANTIGENS
+    antigens = [a for a in _antigens if a in specimens["analyte"].unique()]
     multi_pool = pools is not None and len(pools) > 1
 
     rows = []
@@ -728,8 +770,8 @@ def _specimen_to_table(specimens: pd.DataFrame, pools: list[str] | None = None) 
                             cens = "none"
                         row[f"{analyte}_censored_{slug}"] = cens
 
-                # Default AU (from plain columns — always present)
-                rau = arow["rau"].iloc[0]
+                # Default AU (from plain columns — present when fit succeeded)
+                rau = arow["rau"].iloc[0] if "rau" in arow.columns else np.nan
                 below_lloq = bool(arow["below_lloq"].iloc[0]) if "below_lloq" in arow.columns else False
                 above_uloq = bool(arow["above_uloq"].iloc[0]) if "above_uloq" in arow.columns else False
                 extrap = bool(arow["extrapolated"].iloc[0]) if "extrapolated" in arow.columns else False
@@ -753,16 +795,17 @@ def _specimen_to_table(specimens: pd.DataFrame, pools: list[str] | None = None) 
     return rows
 
 
-def _extrapolation_summary(specimens: pd.DataFrame) -> dict:
+def _extrapolation_summary(specimens: pd.DataFrame, antigens: list | None = None) -> dict:
     """Summarise how many specimen-analyte pairs are extrapolated."""
     if specimens.empty or "extrapolated" not in specimens.columns:
         return {"n_extrapolated": 0, "details": []}
     extrap = specimens[specimens["extrapolated"]].copy()
     n = len(extrap)
     # Summarise by analyte
+    _antigens = antigens or MPXV_ANTIGENS
     details = []
     if n > 0:
-        for analyte in MPXV_ANTIGENS:
+        for analyte in _antigens:
             aext = extrap[extrap["analyte"] == analyte]
             if not aext.empty:
                 above = (aext["mfi"] > aext["mfi"].median()).sum()  # rough
