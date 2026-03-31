@@ -59,7 +59,7 @@ def run_pipeline(
     # 3. Optional layout enrichment
     if layout_path:
         layout = read_plate_layout(layout_path)
-        if layout is not None and "sample_id" in layout.columns:
+        if layout is not None and any(c in layout.columns for c in ("sample_id", "visit_date", "dilution")):
             data = data.merge(layout, on="well", how="left", suffixes=("", "_layout"))
             # Apply per-well dilution overrides from layout where provided
             if "dilution_layout" in data.columns:
