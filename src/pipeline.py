@@ -61,6 +61,13 @@ def run_pipeline(
         layout = read_plate_layout(layout_path)
         if layout is not None and "sample_id" in layout.columns:
             data = data.merge(layout, on="well", how="left", suffixes=("", "_layout"))
+            # Apply per-well dilution overrides from layout where provided
+            if "dilution_layout" in data.columns:
+                mask = data["dilution_layout"].notna()
+                data.loc[mask, "dilution"] = pd.to_numeric(
+                    data.loc[mask, "dilution_layout"], errors="coerce"
+                )
+                data = data.drop(columns=["dilution_layout"])
 
     # 4. QC: bead counts
     bead_qc = qc_bead_counts(data, config=config)

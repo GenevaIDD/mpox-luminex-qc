@@ -481,7 +481,7 @@ def create_app() -> Flask:
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Sample list"
-        ws.append(["well", "sample_id", "visit_date"])
+        ws.append(["well", "sample_id", "visit_date", "dilution"])
         # Pre-fill well IDs for a 96-well plate
         for row_letter in "ABCDEFGH":
             for col_num in range(1, 13):

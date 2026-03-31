@@ -39,9 +39,11 @@ def read_plate_layout(path: str | Path) -> pd.DataFrame | None:
             col_map[col] = "sample_id"
         elif "date" in lower or "dt_visit" in lower:
             col_map[col] = "visit_date"
+        elif "dilution" in lower:
+            col_map[col] = "dilution"
     df = df.rename(columns=col_map)
 
-    keep = [c for c in ["well", "sample_id", "visit_date"] if c in df.columns]
+    keep = [c for c in ["well", "sample_id", "visit_date", "dilution"] if c in df.columns]
     if "well" not in keep:
         return None
 
