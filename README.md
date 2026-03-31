@@ -20,13 +20,15 @@
 Standalone desktop tool for QC of Tetracore 12-plex monkeypox (MPXV) Luminex immunoassays run on a MagPix instrument. Upload xPONENT CSV exports and get interactive HTML reports with:
 
 - **4-Parameter Logistic (4PL) standard curve fitting** with automated quality checks
+- **Dual standard pool support** — plates with ITM PC and/or ITM PC2 pools are fit independently, with separate AU columns per pool
 - **AU quantification** (inverse Relative Antibody Units) for all specimen wells
 - **Bead count validation** (minimum 30 beads per well-analyte)
 - **PC replicate variability** monitoring (CV threshold)
 - **Negative control tracking** across plates
-- **Kit control bead QC** (NC, ScG, FC, IC)
+- **Kit control bead QC** (NC, ScG, FC, IC) with sample IDs on flagged wells
 - **Historical trend plots** for standard curves, PC MFI, and NC levels across plates
 - **Obs/Exp recovery** for standard curve points with reportable range (LLOQ--ULOQ)
+- **Plate reordering** — drag and drop plates into any order, save, then regenerate all reports with history plots reflecting that order
 - **Excel export** of all data across plates
 - **Web-based settings** for QC thresholds, panel definition, and assay configuration (persisted to YAML)
 
@@ -51,7 +53,7 @@ No Python installation or internet connection required &mdash; runs as a self-co
 
 Download the latest release for your platform from the [Releases](https://github.com/GenevaIDD/mpox-luminex-qc/releases) page:
 
-- **macOS**: `MPXV Luminex QC.app` (~128 MB)
+- **macOS**: `MPXV Luminex QC.app` (~138 MB)
 - **Windows**: `MPXV-Luminex-QC/` folder with `.exe`
 
 ### Run
@@ -79,7 +81,7 @@ Download the latest release for your platform from the [Releases](https://github
 
 ### Standard Curve Fit Quality
 
-Each of the 8 antigen standard curves is fit independently using a 4PL model:
+Each of the 8 antigen standard curves is fit independently per standard pool using a 4PL model:
 
 ```
 y = d + (a - d) / (1 + (x / c)^b)
@@ -120,11 +122,11 @@ Higher AU = more antibody. For example, with a standard starting at 1:100, a spe
 
 | Output | Format | Description |
 |--------|--------|-------------|
-| QC Report | HTML | Interactive per-plate report with Plotly charts |
-| Specimen data | CSV | Per-plate long-format results |
+| QC Report | HTML | Interactive per-plate report with Plotly charts; includes in-report CSV download for specimen results |
+| Specimen data | CSV | Per-plate results with AU columns per pool (when multiple pools present) |
 | All data export | XLSX | Combined workbook across all plates (specimens, fit params, NC levels) |
 
-All outputs are stored in `~/mpox-luminex-qc-results/`.
+All outputs are stored in `~/mpox-luminex-qc-results/`. Uploaded CSV files are retained in `uploads/` to allow **Regenerate All** without re-uploading.
 
 ## Development
 
