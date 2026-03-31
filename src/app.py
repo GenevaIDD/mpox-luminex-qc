@@ -184,23 +184,33 @@ def create_app() -> Flask:
                     writer, sheet_name="specimens", index=False
                 )
 
-            # Fit history (standard curve parameters)
-            fit_path = history_dir / "fit_history.json"
-            if fit_path.exists():
-                fit_data = pd.DataFrame(json.loads(fit_path.read_text(encoding="utf-8")))
-                if not fit_data.empty:
-                    fit_data.to_excel(
-                        writer, sheet_name="standard_curve_params", index=False
-                    )
+            # Fit history (standard curve parameters) — one file per pool
+            fit_frames = []
+            for fit_path in sorted(history_dir.glob("fit_history*.json")):
+                try:
+                    df = pd.DataFrame(json.loads(fit_path.read_text(encoding="utf-8")))
+                    if not df.empty:
+                        fit_frames.append(df)
+                except Exception:
+                    pass
+            if fit_frames:
+                pd.concat(fit_frames, ignore_index=True).to_excel(
+                    writer, sheet_name="standard_curve_params", index=False
+                )
 
-            # Standard curve raw data
-            std_path = history_dir / "std_curve_history.json"
-            if std_path.exists():
-                std_data = pd.DataFrame(json.loads(std_path.read_text(encoding="utf-8")))
-                if not std_data.empty:
-                    std_data.to_excel(
-                        writer, sheet_name="standard_curve_data", index=False
-                    )
+            # Standard curve raw data — one file per pool
+            std_frames = []
+            for std_path in sorted(history_dir.glob("std_curve_history*.json")):
+                try:
+                    df = pd.DataFrame(json.loads(std_path.read_text(encoding="utf-8")))
+                    if not df.empty:
+                        std_frames.append(df)
+                except Exception:
+                    pass
+            if std_frames:
+                pd.concat(std_frames, ignore_index=True).to_excel(
+                    writer, sheet_name="standard_curve_data", index=False
+                )
 
             # NC levels
             nc_path = history_dir / "nc_history.json"
@@ -470,8 +480,8 @@ def create_app() -> Flask:
         import openpyxl
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Plate Layout"
-        ws.append(["well", "sample_id", "visit_date", "dilution"])
+        ws.title = "Sample list"
+        ws.append(["well", "sample_id", "visit_date"])
         # Pre-fill well IDs for a 96-well plate
         for row_letter in "ABCDEFGH":
             for col_num in range(1, 13):

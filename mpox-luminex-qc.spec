@@ -15,6 +15,8 @@ a = Analysis(
         (str(project_root / "templates" / "report.html"), "templates"),
         # Flask web UI templates
         (str(project_root / "templates" / "web"), "templates/web"),
+        # Bundled vendor JS (SortableJS — keeps app fully offline)
+        (str(project_root / "static" / "vendor"), "static/vendor"),
         # Specification document
         (str(project_root / "SPECIFICATION.md"), "."),
     ],
