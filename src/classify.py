@@ -50,10 +50,10 @@ def _classify_sample(name: str, pc_patterns: list[str], nc_patterns: list[str]) 
 def _extract_dilution(name: str) -> float:
     """Extract dilution denominator from PC sample names like 'PC 1:50' or 'ITM PC 50'.
 
-    Also handles 'ITM PC2 1:50' and 'ITM PC2 50'.
+    Also handles 'ITM PC2 1:50', 'ITM PC2 50', and slash-format 'VIG 05 1/100'.
     """
-    # Match "1:50" anywhere in the name (colon-based dilution)
-    m = re.search(r"1:(\d+)", name)
+    # Match "1:50" or "1/50" anywhere in the name
+    m = re.search(r"1[:/](\d+)", name)
     if m:
         return float(m.group(1))
     # Match trailing number after "PC" or "PC2" — e.g., "ITM PC2 50" or "PC 100"
@@ -66,10 +66,23 @@ def _extract_dilution(name: str) -> float:
 def _extract_pc_pool(name: str) -> str | None:
     """Extract PC pool name from sample name.
 
-    'ITM PC2 1:50' → 'ITM PC2'
-    'ITM PC 1:50'  → 'ITM PC'
-    'PC 1:50'      → 'PC'
+    'ITM PC2 1:50'  → 'ITM PC2'
+    'ITM PC 1:50'   → 'ITM PC'
+    'PC 1:50'       → 'PC'
+    'VIG 05 1/100'  → 'VIG 05'
     Returns None for non-PC wells.
     """
+    # Fast path: standard PC/ITM PC prefix
     m = re.match(r"((?:ITM\s*)?PC\d?)\s", name, re.IGNORECASE)
-    return m.group(1).strip() if m else None
+    if m:
+        return m.group(1).strip()
+    # General fallback: strip the dilution indicator from the end
+    # Handles "VIG 05 1/100" → "VIG 05", "VIG 05 1:100" → "VIG 05"
+    pool = re.sub(r"\s+1[:/]\d+\s*$", "", name.strip())
+    if pool != name.strip():
+        return pool
+    # Trailing bare number (e.g. "VIG 05 100")
+    pool = re.sub(r"\s+\d+\s*$", "", name.strip())
+    if pool != name.strip():
+        return pool
+    return None
