@@ -11,6 +11,7 @@ from .qc_standard_curve import fit_standard_curves, compute_concentrations, comp
 from .qc_replicates import qc_pc_replicates
 from .qc_nc import qc_nc_levels
 from .qc_kit_controls import qc_kit_controls
+from .qc_sample_labels import qc_duplicate_labels
 from .qc_history import load_history, append_history, save_history
 from .parse_layout import read_plate_layout
 from .plate_summary import plate_summary
@@ -84,6 +85,9 @@ def run_pipeline(
     # 8. QC: kit controls
     kit_ctrl = qc_kit_controls(data, config=config)
 
+    # 8b. QC: duplicate sample labels
+    label_qc = qc_duplicate_labels(data)
+
     # 9. Compute specimen AU and Net MFI
     specimen_results = compute_concentrations(data, fits)
     data = compute_net_mfi(data)
@@ -141,6 +145,7 @@ def run_pipeline(
         replicate_qc=replicate_qc,
         nc_levels=nc_levels,
         kit_controls=kit_ctrl,
+        label_qc=label_qc,
         specimen_results=specimen_results,
         summary=summary,
         history_std=history_std,

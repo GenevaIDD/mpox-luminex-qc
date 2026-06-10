@@ -236,10 +236,26 @@
 {% endif %}
 </div>
 
-<!-- Section 7: Specimen Results -->
+<!-- Section 7: Sample Label QC -->
+<div class="section">
+<h2>7. Sample Label Issues</h2>
+{% if label_qc.has_duplicates %}
+<p class="warning">{{ label_qc.duplicates | length }} sample ID(s) used on more than one well.</p>
+<table>
+  <tr><th>Sample ID</th><th>Wells</th></tr>
+  {% for row in label_qc.duplicates %}
+  <tr class="flag"><td>{{ row.sample_name }}</td><td>{{ row.wells | join(', ') }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>No duplicate sample IDs found among specimen wells.</p>
+{% endif %}
+</div>
+
+<!-- Section 8: Specimen Results -->
 {% if specimen_results %}
 <div class="section">
-<h2>7. Specimen Results</h2>
+<h2>8. Specimen Results</h2>
 <p>{{ specimen_results | length }} specimens. MFI and AU (Arbitrary Units; first standard dilution = 1000 AU; higher = more antibody) per antigen.</p>
 {% if extrapolation.n_extrapolated > 0 %}
 <p class="warning">{{ extrapolation.n_extrapolated }} specimen-analyte values fall outside the observed standard curve range (marked with *). These AU values are extrapolated and may be unreliable.
