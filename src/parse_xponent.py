@@ -17,7 +17,12 @@ def parse_xponent_csv(path: str | Path) -> dict:
     """
     path = Path(path)
     lines = path.read_text(encoding="utf-8-sig").splitlines()
-    rows = list(csv.reader(lines))
+    # European xPONENT exports use semicolons as the field separator and commas
+    # as the decimal separator (e.g. "17553,5" instead of "17553.5").
+    # Detect by checking whether the first non-empty line contains a semicolon.
+    non_empty = next((l for l in lines if l.strip()), lines[0])
+    delimiter = ";" if ";" in non_empty else ","
+    rows = list(csv.reader(lines, delimiter=delimiter))
 
     metadata = _parse_metadata(rows)
     metadata["file"] = path.name
@@ -103,10 +108,12 @@ def _parse_data_block(rows: list[list[str]], block_start: int) -> pd.DataFrame:
     df["well"] = df["Location"].apply(_parse_well_from_location)
     df = df.rename(columns={"Sample": "sample_name"})
 
-    # Convert numeric columns
+    # Convert numeric columns; handle European decimal comma ("17553,5" → 17553.5)
     analyte_cols = [c for c in col_names if c not in ("Location", "Sample")]
     for col in analyte_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+        df[col] = pd.to_numeric(
+            df[col].str.replace(",", ".", regex=False), errors="coerce"
+        )
 
     # Normalize column name
     if "Total Events" in df.columns:
