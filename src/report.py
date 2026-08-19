@@ -411,7 +411,13 @@ def _plate_sort_and_label(history: pd.DataFrame,
     plate_info = history.groupby("plate_id").first().reset_index()
 
     def _parse_date(d):
-        for fmt in ("%m/%d/%Y %I:%M %p", "%m/%d/%Y %I:%M:%S %p", "%Y-%m-%d"):
+        for fmt in (
+            "%m/%d/%Y %I:%M %p",    # US: "06/02/2026 12:48 PM"
+            "%m/%d/%Y %I:%M:%S %p", # US with seconds
+            "%d/%m/%Y %H:%M:%S",    # EU: "19/08/2026 08:34:02"
+            "%d/%m/%Y %H:%M",       # EU: "13/08/2026 10:54"
+            "%Y-%m-%d",
+        ):
             try:
                 return datetime.strptime(str(d).strip(), fmt)
             except (ValueError, TypeError):
@@ -436,9 +442,13 @@ def _plate_sort_and_label(history: pd.DataFrame,
     result = []
     for _, row in plate_info.iterrows():
         pid = row["plate_id"]
-        # Extract PLATEXX from plate_id
+        # Extract plate number: prefer "PLATE01", fall back to "P09"-style, then last 8 chars
         m = re.search(r"(PLATE\s*\d+)", pid, re.IGNORECASE)
-        plate_part = m.group(1) if m else pid[-8:]
+        if m:
+            plate_part = m.group(1)
+        else:
+            m2 = re.search(r"-P(\d+)-", pid)
+            plate_part = f"P{m2.group(1)}" if m2 else pid[-8:]
         # Extract short date
         date_part = ""
         sd = row.get("_sort_date")
