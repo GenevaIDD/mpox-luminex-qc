@@ -533,11 +533,11 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
         fig.update_yaxes(type="log", row=row, col=col)
 
     fig.update_layout(
-        height=800,
+        height=900,
         title_text=f"PC Standard MFI Across Plates (by dilution){title_suffix}",
-        margin=dict(t=60, b=120),
+        margin=dict(t=60, b=180),
     )
-    fig.update_xaxes(tickangle=-90, tickfont=dict(size=10))
+    fig.update_xaxes(tickangle=-90, tickfont=dict(size=9), tickmode="linear", dtick=1, tick0=0)
     return fig
 
 
@@ -606,11 +606,11 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
         ), row=row, col=col)
 
     fig.update_layout(
-        height=800,
+        height=900,
         title_text="Negative Control MFI Across Plates",
-        margin=dict(t=60, b=120),
+        margin=dict(t=60, b=180),
     )
-    fig.update_xaxes(tickangle=-90, tickfont=dict(size=10))
+    fig.update_xaxes(tickangle=-90, tickfont=dict(size=9), tickmode="linear", dtick=1, tick0=0)
     return fig
 
 
