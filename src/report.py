@@ -410,6 +410,17 @@ def _plate_sort_and_label(history: pd.DataFrame,
 
     plate_info = history.groupby("plate_id").first().reset_index()
 
+    def _date_from_plate_id(pid):
+        # Plate IDs start with A{DDMMYY}-, which is more reliable than instrument clock.
+        m = re.match(r"^A(\d{2})(\d{2})(\d{2})-", str(pid))
+        if m:
+            dd, mm, yy = m.groups()
+            try:
+                return datetime(2000 + int(yy), int(mm), int(dd))
+            except ValueError:
+                pass
+        return None
+
     def _parse_date(d):
         for fmt in (
             "%m/%d/%Y %I:%M %p",    # US: "06/02/2026 12:48 PM"
@@ -424,10 +435,13 @@ def _plate_sort_and_label(history: pd.DataFrame,
                 continue
         return datetime.min
 
-    if "run_date" in plate_info.columns:
-        plate_info["_sort_date"] = plate_info["run_date"].apply(_parse_date)
-    else:
-        plate_info["_sort_date"] = datetime.min
+    def _get_sort_date(row):
+        d = _date_from_plate_id(row["plate_id"])
+        if d is not None:
+            return d
+        return _parse_date(row.get("run_date", ""))
+
+    plate_info["_sort_date"] = plate_info.apply(_get_sort_date, axis=1)
 
     if plate_order:
         order_map = {pid: i for i, pid in enumerate(plate_order)}
