@@ -442,13 +442,21 @@ def _plate_sort_and_label(history: pd.DataFrame,
     result = []
     for _, row in plate_info.iterrows():
         pid = row["plate_id"]
-        # Extract plate number: prefer "PLATE01", fall back to "P09"-style, then last 8 chars
+        # Build a unique plate label.
+        # Prefer "PLATE01" style; otherwise combine kit group + plate number
+        # (e.g. GK02-P27) so plates from different kit groups don't collide.
         m = re.search(r"(PLATE\s*\d+)", pid, re.IGNORECASE)
         if m:
             plate_part = m.group(1)
         else:
-            m2 = re.search(r"-P(\d+)-", pid)
-            plate_part = f"P{m2.group(1)}" if m2 else pid[-8:]
+            kit = re.search(r"-(GK\d+)-", pid, re.IGNORECASE)
+            pnum = re.search(r"-P(\d+)-", pid)
+            if kit and pnum:
+                plate_part = f"{kit.group(1).upper()}-P{pnum.group(1)}"
+            elif pnum:
+                plate_part = f"P{pnum.group(1)}"
+            else:
+                plate_part = pid[-8:]
         # Extract short date
         date_part = ""
         sd = row.get("_sort_date")
