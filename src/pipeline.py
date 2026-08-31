@@ -213,16 +213,15 @@ def _build_std_history(metadata: dict, pool_fits: dict, pool_name: str = "") -> 
 
 
 def _build_nc_history(metadata: dict, nc_levels: pd.DataFrame) -> pd.DataFrame:
-    """Build NC history entries, grouped by NC sample name and analyte."""
+    """Build NC history entries — one row per well, preserving individual values."""
     if nc_levels.empty:
         return pd.DataFrame()
-    group_cols = ["sample_name", "analyte"] if "sample_name" in nc_levels.columns else ["analyte"]
-    nc_mean = nc_levels.groupby(group_cols)["mfi"].mean().reset_index()
-    if "sample_name" in nc_mean.columns:
-        nc_mean = nc_mean.rename(columns={"sample_name": "nc_group"})
-    nc_mean["plate_id"] = metadata["plate_id"]
-    nc_mean["run_date"] = metadata.get("run_date", "")
-    return nc_mean
+    rows = nc_levels[["well", "analyte", "mfi"]].copy()
+    if "sample_name" in nc_levels.columns:
+        rows["nc_group"] = nc_levels["sample_name"].values
+    rows["plate_id"] = metadata["plate_id"]
+    rows["run_date"] = metadata.get("run_date", "")
+    return rows.reset_index(drop=True)
 
 
 def _build_fit_history(metadata: dict, pool_fits: dict, pool_name: str = "") -> pd.DataFrame:

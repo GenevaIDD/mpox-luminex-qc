@@ -563,9 +563,19 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
     plates = [pid for pid, _ in sorted_plates]
     plate_labels = [label for _, label in sorted_plates]
 
-    nc_groups = sorted(history_nc["nc_group"].dropna().unique()) if "nc_group" in history_nc.columns else [None]
-    cmap = _nc_color_map([g for g in nc_groups if g is not None])
+    # Fill missing nc_group (legacy records) so they still appear
+    if "nc_group" in history_nc.columns:
+        history_nc = history_nc.copy()
+        history_nc["nc_group"] = history_nc["nc_group"].fillna("NC")
+        nc_groups = sorted(history_nc["nc_group"].unique())
+    else:
+        nc_groups = ["NC"]
+        history_nc = history_nc.copy()
+        history_nc["nc_group"] = "NC"
+
+    cmap = _nc_color_map(nc_groups)
     show_legend = len(nc_groups) > 1
+    plate_label_map = dict(zip(plates, plate_labels))
 
     for i, analyte in enumerate(antigens[:8]):
         row = i // 4 + 1
@@ -573,26 +583,20 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
         adata = history_nc[history_nc["analyte"] == analyte]
 
         for group in nc_groups:
-            gdata = adata[adata["nc_group"] == group] if group is not None else adata
+            gdata = adata[adata["nc_group"] == group]
+            if gdata.empty:
+                continue
             base_color = cmap.get(group, "steelblue")
-            mfis = []
-            labels = []
-            colors = []
-            for j, pid in enumerate(plates):
-                pdata = gdata[gdata["plate_id"] == pid]
-                if not pdata.empty:
-                    mfis.append(pdata["mfi"].mean())
-                    labels.append(plate_labels[j])
-                    colors.append("red" if pid == current_plate_id else base_color)
-
+            x_labels = [plate_label_map.get(pid, pid) for pid in gdata["plate_id"]]
+            point_colors = ["red" if pid == current_plate_id else base_color
+                            for pid in gdata["plate_id"]]
             fig.add_trace(go.Scatter(
-                x=labels, y=mfis,
-                mode="markers+lines",
-                name=group or "NC",
-                legendgroup=group or "NC",
+                x=x_labels, y=gdata["mfi"].tolist(),
+                mode="markers",
+                name=group,
+                legendgroup=group,
                 showlegend=show_legend and i == 0,
-                marker=dict(size=8, color=colors),
-                line=dict(color=base_color, width=1),
+                marker=dict(size=7, color=point_colors),
                 hovertemplate="%{x}: MFI %{y:.1f}<extra></extra>",
             ), row=row, col=col)
 
