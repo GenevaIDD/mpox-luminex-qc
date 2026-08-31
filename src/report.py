@@ -542,11 +542,17 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
 
 
 _NC_GROUP_COLORS = ["steelblue", "darkorange", "seagreen", "crimson"]
+_NC_GROUP_SYMBOLS = ["circle", "diamond", "square", "triangle-up"]
 
 
 def _nc_color_map(groups: list) -> dict:
     """Map sorted NC group names to consistent colors."""
     return {g: _NC_GROUP_COLORS[i % len(_NC_GROUP_COLORS)] for i, g in enumerate(sorted(groups))}
+
+
+def _nc_symbol_map(groups: list) -> dict:
+    """Map sorted NC group names to consistent marker symbols."""
+    return {g: _NC_GROUP_SYMBOLS[i % len(_NC_GROUP_SYMBOLS)] for i, g in enumerate(sorted(groups))}
 
 
 def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.Figure:
@@ -559,15 +565,18 @@ def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.F
     fig = go.Figure()
     groups = sorted(nc_levels["sample_name"].unique()) if "sample_name" in nc_levels.columns else [None]
     cmap = _nc_color_map([g for g in groups if g is not None])
+    smap = _nc_symbol_map([g for g in groups if g is not None])
 
     for group in groups:
         subset = nc_levels[nc_levels["sample_name"] == group] if group is not None else nc_levels
         color = cmap.get(group, "steelblue")
+        symbol = smap.get(group, "circle")
         fig.add_trace(go.Scatter(
             x=subset["analyte"], y=subset["mfi"],
             mode="markers",
             name=group or "NC",
-            marker=dict(size=9, color=color, opacity=0.85),
+            marker=dict(size=10, color=color, symbol=symbol,
+                        line=dict(width=1, color="white")),
             hovertemplate="%{x}: %{y:.1f}<extra></extra>",
         ))
     fig.update_layout(
@@ -608,6 +617,7 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
         history_nc["nc_group"] = "NC"
 
     cmap = _nc_color_map(nc_groups)
+    smap = _nc_symbol_map(nc_groups)
     show_legend = len(nc_groups) > 1
     plate_label_map = dict(zip(plates, plate_labels))
 
@@ -624,13 +634,15 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
             x_labels = [plate_label_map.get(pid, pid) for pid in gdata["plate_id"]]
             point_colors = ["red" if pid == current_plate_id else base_color
                             for pid in gdata["plate_id"]]
+            symbol = smap.get(group, "circle")
             fig.add_trace(go.Scatter(
                 x=x_labels, y=gdata["mfi"].tolist(),
                 mode="markers",
                 name=group,
                 legendgroup=group,
                 showlegend=show_legend and i == 0,
-                marker=dict(size=7, color=point_colors),
+                marker=dict(size=7, color=point_colors, symbol=symbol,
+                            line=dict(width=1, color="white")),
                 hovertemplate="%{x}: MFI %{y:.1f}<extra></extra>",
             ), row=row, col=col)
 
