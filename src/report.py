@@ -508,21 +508,28 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
 
 
 def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.Figure:
-    """NC MFI by analyte — current plate bar chart."""
+    """NC MFI by analyte — current plate bar chart, one trace per NC group."""
     if nc_levels.empty:
         fig = go.Figure()
         fig.update_layout(title="No NC wells on this plate")
         return fig
 
-    mean_nc = nc_levels.groupby("analyte")["mfi"].mean().reset_index()
-    fig = go.Figure(go.Bar(
-        x=mean_nc["analyte"], y=mean_nc["mfi"],
-        marker_color="steelblue",
-        hovertemplate="%{x}: %{y:.1f}<extra></extra>",
-    ))
+    fig = go.Figure()
+    groups = nc_levels["sample_name"].unique() if "sample_name" in nc_levels.columns else [None]
+    colors = ["steelblue", "darkorange", "seagreen", "crimson"]
+    for i, group in enumerate(sorted(groups)):
+        subset = nc_levels[nc_levels["sample_name"] == group] if group is not None else nc_levels
+        mean_nc = subset.groupby("analyte")["mfi"].mean().reset_index()
+        fig.add_trace(go.Bar(
+            x=mean_nc["analyte"], y=mean_nc["mfi"],
+            name=group or "NC",
+            marker_color=colors[i % len(colors)],
+            hovertemplate="%{x}: %{y:.1f}<extra></extra>",
+        ))
     fig.update_layout(
         title="Negative Control MFI by Analyte",
         xaxis_title="Analyte", yaxis_title="MFI",
+        barmode="group",
         height=350,
     )
     return fig
@@ -547,29 +554,38 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
     plates = [pid for pid, _ in sorted_plates]
     plate_labels = [label for _, label in sorted_plates]
 
+    nc_groups = sorted(history_nc["nc_group"].dropna().unique()) if "nc_group" in history_nc.columns else [None]
+    group_colors = {0: "steelblue", 1: "darkorange", 2: "seagreen"}
+    show_legend = len(nc_groups) > 1
+
     for i, analyte in enumerate(antigens[:8]):
         row = i // 4 + 1
         col = i % 4 + 1
         adata = history_nc[history_nc["analyte"] == analyte]
 
-        mfis = []
-        labels = []
-        colors = []
-        for j, pid in enumerate(plates):
-            pdata = adata[adata["plate_id"] == pid]
-            if not pdata.empty:
-                mfis.append(pdata["mfi"].mean())
-                labels.append(plate_labels[j])
-                colors.append("red" if pid == current_plate_id else "steelblue")
+        for gi, group in enumerate(nc_groups):
+            gdata = adata[adata["nc_group"] == group] if group is not None else adata
+            mfis = []
+            labels = []
+            colors = []
+            for j, pid in enumerate(plates):
+                pdata = gdata[gdata["plate_id"] == pid]
+                if not pdata.empty:
+                    mfis.append(pdata["mfi"].mean())
+                    labels.append(plate_labels[j])
+                    colors.append("red" if pid == current_plate_id else group_colors.get(gi, "steelblue"))
 
-        fig.add_trace(go.Scatter(
-            x=labels, y=mfis,
-            mode="markers+lines",
-            marker=dict(size=8, color=colors),
-            line=dict(color="lightgrey", width=1),
-            showlegend=False,
-            hovertemplate="%{x}: MFI %{y:.1f}<extra></extra>",
-        ), row=row, col=col)
+            base_color = group_colors.get(gi, "steelblue")
+            fig.add_trace(go.Scatter(
+                x=labels, y=mfis,
+                mode="markers+lines",
+                name=group or "NC",
+                legendgroup=group or "NC",
+                showlegend=show_legend and i == 0,
+                marker=dict(size=8, color=colors),
+                line=dict(color=base_color, width=1),
+                hovertemplate="%{x}: MFI %{y:.1f}<extra></extra>",
+            ), row=row, col=col)
 
     fig.update_layout(
         height=800,
