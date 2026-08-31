@@ -114,7 +114,7 @@ def run_pipeline(
     history_nc = load_history(nc_history_path)
     new_nc = _build_nc_history(metadata, nc_levels)
     if not new_nc.empty:
-        history_nc = append_history(history_nc, new_nc, ["plate_id", "analyte"])
+        history_nc = append_history(history_nc, new_nc, ["plate_id", "well", "analyte"])
         save_history(history_nc, nc_history_path)
 
     # Fit history — per pool
