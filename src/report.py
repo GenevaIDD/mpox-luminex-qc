@@ -541,29 +541,38 @@ def _make_pc_mfi_history(history: pd.DataFrame | None, current_plate_id: str,
     return fig
 
 
+_NC_GROUP_COLORS = ["steelblue", "darkorange", "seagreen", "crimson"]
+
+
+def _nc_color_map(groups: list) -> dict:
+    """Map sorted NC group names to consistent colors."""
+    return {g: _NC_GROUP_COLORS[i % len(_NC_GROUP_COLORS)] for i, g in enumerate(sorted(groups))}
+
+
 def _make_nc_plot(nc_levels: pd.DataFrame, history: pd.DataFrame | None) -> go.Figure:
-    """NC MFI by analyte — current plate bar chart, one trace per NC group."""
+    """NC MFI by analyte — individual well points, one trace per NC group."""
     if nc_levels.empty:
         fig = go.Figure()
         fig.update_layout(title="No NC wells on this plate")
         return fig
 
     fig = go.Figure()
-    groups = nc_levels["sample_name"].unique() if "sample_name" in nc_levels.columns else [None]
-    colors = ["steelblue", "darkorange", "seagreen", "crimson"]
-    for i, group in enumerate(sorted(groups)):
+    groups = sorted(nc_levels["sample_name"].unique()) if "sample_name" in nc_levels.columns else [None]
+    cmap = _nc_color_map([g for g in groups if g is not None])
+
+    for group in groups:
         subset = nc_levels[nc_levels["sample_name"] == group] if group is not None else nc_levels
-        mean_nc = subset.groupby("analyte")["mfi"].mean().reset_index()
-        fig.add_trace(go.Bar(
-            x=mean_nc["analyte"], y=mean_nc["mfi"],
+        color = cmap.get(group, "steelblue")
+        fig.add_trace(go.Scatter(
+            x=subset["analyte"], y=subset["mfi"],
+            mode="markers",
             name=group or "NC",
-            marker_color=colors[i % len(colors)],
+            marker=dict(size=9, color=color, opacity=0.85),
             hovertemplate="%{x}: %{y:.1f}<extra></extra>",
         ))
     fig.update_layout(
         title="Negative Control MFI by Analyte",
         xaxis_title="Analyte", yaxis_title="MFI",
-        barmode="group",
         height=350,
     )
     return fig
@@ -589,7 +598,7 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
     plate_labels = [label for _, label in sorted_plates]
 
     nc_groups = sorted(history_nc["nc_group"].dropna().unique()) if "nc_group" in history_nc.columns else [None]
-    group_colors = {0: "steelblue", 1: "darkorange", 2: "seagreen"}
+    cmap = _nc_color_map([g for g in nc_groups if g is not None])
     show_legend = len(nc_groups) > 1
 
     for i, analyte in enumerate(antigens[:8]):
@@ -597,8 +606,9 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
         col = i % 4 + 1
         adata = history_nc[history_nc["analyte"] == analyte]
 
-        for gi, group in enumerate(nc_groups):
+        for group in nc_groups:
             gdata = adata[adata["nc_group"] == group] if group is not None else adata
+            base_color = cmap.get(group, "steelblue")
             mfis = []
             labels = []
             colors = []
@@ -607,9 +617,8 @@ def _make_nc_history(history_nc: pd.DataFrame | None, current_plate_id: str,
                 if not pdata.empty:
                     mfis.append(pdata["mfi"].mean())
                     labels.append(plate_labels[j])
-                    colors.append("red" if pid == current_plate_id else group_colors.get(gi, "steelblue"))
+                    colors.append("red" if pid == current_plate_id else base_color)
 
-            base_color = group_colors.get(gi, "steelblue")
             fig.add_trace(go.Scatter(
                 x=labels, y=mfis,
                 mode="markers+lines",
